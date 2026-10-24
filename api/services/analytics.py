@@ -101,7 +101,7 @@ def overview(options):
         charts['comment_trend'] = rows(db, 'SELECT date(m.published_at,\'+8 hours\') label,count(*) value ' + parent + ' AND m.published_at IS NOT NULL GROUP BY label ORDER BY label', args)
         # SQL groups repeated bodies first; bounded term extraction avoids loading
         # the whole comment database. UI discloses this sampling boundary.
-        bodies = rows(db, 'SELECT m.body,count(*) n ' + parent + " AND m.body IS NOT NULL GROUP BY m.body ORDER BY max(m.collected_at) DESC LIMIT 5000", args)
+        bodies = rows(db, 'SELECT m.body,count(*) n ' + parent + " AND m.body IS NOT NULL GROUP BY m.body ORDER BY max(coalesce(m.collected_at,m.published_at,'')) DESC,m.body LIMIT 5000", args)
         import jieba
         from collections import Counter
         import re
@@ -179,6 +179,8 @@ def parse_file(name, data):
                 raise ValueError('Excel 解压后过大')
         wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
         try:
+            if wb.active is None:
+                raise ValueError('Excel 文件没有可读取的工作表')
             iterator = wb.active.iter_rows(values_only=True)
             header = next(iterator, None)
             if not header or any(h is None for h in header) or len(set(header)) != len(header):
@@ -195,7 +197,7 @@ def parse_file(name, data):
     text = data.decode('utf-8-sig')
     if suffix == '.csv':
         reader = csv.DictReader(io.StringIO(text))
-        if not reader.fieldnames or len(set(reader.fieldnames)) != len(reader.fieldnames):
+        if not reader.fieldnames or any(not h.strip() for h in reader.fieldnames) or len(set(reader.fieldnames)) != len(reader.fieldnames):
             raise ValueError('CSV 字段名不能为空或重复')
         result = []
         for row in reader:
@@ -251,6 +253,11 @@ def import_file(name, data, platform='', kind='content', dry_run=True):
                         old = db.execute('SELECT * FROM analytics_snapshot WHERE platform=? AND content_id=? AND collected_at=?', snapshot_key).fetchone()
                     if old and any(old[k] != item[k] for k in ('likes', 'favorites', 'comments', 'shares')):
                         raise ValueError('同一内容与采集时间已有不同指标快照，请核对采集时间')
+                    if old:
+                        result['duplicates'] += 1
+                        continue
+                if previous and previous['collected_at'] and item['collected_at'] is None:
+                    raise ValueError('已有记录含采集时间，当前记录缺少采集时间，不能安全覆盖')
                 warnings = []
                 for key in ('published_at', 'collected_at', 'likes', 'favorites', 'comments', 'shares'):
                     if kind == 'comment' and key not in ('published_at', 'collected_at'):
@@ -273,7 +280,7 @@ def import_file(name, data, platform='', kind='content', dry_run=True):
                 if len(result['errors']) < 20:
                     result['errors'].append({'row': index, 'error': str(exc)})
     if not dry_run:
-        # Serialize validation + writes against other imports/collector writes.
+        # Serialize writes against other imports/collector writes.
         # Recheck collisions after acquiring lock to preserve immutable history.
         with sqlite3.connect(db_path(), timeout=30) as db:
             db.execute('BEGIN IMMEDIATE')

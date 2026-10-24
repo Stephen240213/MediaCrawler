@@ -183,6 +183,8 @@ agent_zone
 debug_tools
 
 database/*.db
+database/*.db-*
+database/*.db.*
 .omx/
 # Local deployment runtime
 .local-tools/

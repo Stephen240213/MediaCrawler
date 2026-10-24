@@ -65,7 +65,7 @@ export function Collector() {
         </div><p className="wb-hint">首次扫码登录建议保持浏览器可见。</p></details>
       </fieldset>
       {validation && <p role="alert" className="wb-error">{validation}</p>}
-      <div className="wb-form-footer"><span>结果保存在本机 data 目录</span>{busy ? <button type="button" className="wb-button danger" disabled={status === 'stopping' || stop.isPending} onClick={() => stop.mutate()}><Square size={16}/>{status === 'stopping' ? '正在停止…' : '停止任务'}</button> : <button className="wb-button primary" type="submit"><Play size={16}/>执行{modeNames[config.crawler_type]}</button>}</div>
+      <div className="wb-form-footer"><span>{config.save_option === 'sqlite' ? '结果写入本机采集 SQLite 库，可在数据分析中查看' : ['db', 'mongodb', 'postgres'].includes(config.save_option) ? '结果写入已配置的数据库' : '结果保存在本机 data 目录'}</span>{busy ? <button type="button" className="wb-button danger" disabled={status === 'stopping' || stop.isPending} onClick={() => stop.mutate()}><Square size={16}/>{status === 'stopping' ? '正在停止…' : '停止任务'}</button> : <button className="wb-button primary" type="submit"><Play size={16}/>执行{modeNames[config.crawler_type]}</button>}</div>
     </form>
   </section>
 }

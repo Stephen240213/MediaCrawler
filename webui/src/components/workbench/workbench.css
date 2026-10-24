@@ -1403,12 +1403,15 @@
     flex-direction:row;
     margin-top:12px;
     gap:4px;
+    max-width:100%;
+    overflow-x:auto;
   }
   .wb-sidebar nav button {
     font-size:10px;
     gap:5px;
     padding:9px 5px;
-    flex:1;
+    flex:0 0 auto;
+    width:auto;
     white-space:nowrap;
   }
   .wb-sidebar nav button svg {

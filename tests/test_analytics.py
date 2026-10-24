@@ -58,6 +58,9 @@ def test_missing_and_naive_time():
         assert schema.timestamp(value) is None
     item = schema.normalize(note())
     assert item['favorites'] is None and item['comments'] is None
+    assert schema.normalize(dict(note(), author='None'))['author_id'] is None
+    assert schema.normalize(dict(note(), collected_at='None', add_ts=1700000000))['collected_at'] == schema.timestamp(1700000000)
+    with pytest.raises(ValueError): schema.normalize(dict(note(), content_id={'bad': 1}))
     with pytest.raises(ValueError): schema.normalize({'platform':'xhs'})
 
 
@@ -219,3 +222,30 @@ def test_csv_formula_and_null_export(client,database):
     row=next(csv.DictReader(io.StringIO(r.content.decode('utf-8-sig'))))
     assert row['title'].startswith("'=")
     assert row['favorites']==''
+
+
+@pytest.mark.parametrize('table,spec', list(schema.SOURCES.items()) + list(schema.COMMENTS.items()))
+def test_all_platform_trigger_mappings(database,table,spec):
+    from sqlalchemy import create_engine
+    from database.models import Base
+    engine=create_engine('sqlite:///'+str(database))
+    Base.metadata.create_all(engine)
+    engine.dispose()
+    schema.migrate(database)
+    platform, parent_key, pub_key=spec
+    kind='comment' if table in schema.COMMENTS else 'content'
+    values={parent_key:'content-1',pub_key:1700000000000,'last_modify_ts':1700000010}
+    available=Base.metadata.tables[table].columns.keys()
+    if kind=='comment':
+        values['comment_id']='comment-1';values['content']='本地测试评论'
+    else:
+        metric=next((k for k in ['liked_count','voteup_count','total_liked'] if k in available),None)
+        if metric: values[metric]='123'
+        if table=='bilibili_video': values['video_url']='https://www.bilibili.com/video/local-fixture'
+    with sqlite3.connect(database) as db:
+        schema.register_functions(db)
+        db.execute(f"INSERT INTO {table} ({','.join(values)}) VALUES ({','.join('?' for _ in values)})",list(values.values()))
+        result=db.execute('SELECT platform,content_id,published_at FROM analytics_'+kind).fetchone()
+        assert result==(platform,'content-1','2023-11-14T22:13:20.000000Z')
+        if kind=='content' and metric:
+            assert db.execute('SELECT likes FROM analytics_snapshot').fetchone()[0]==123

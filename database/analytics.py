@@ -61,7 +61,7 @@ def number(value):
     if not match:
         return None
     n = float(match[1]) * {None: 1, '万': 10000, '亿': 100000000, '千': 1000, 'k': 1000, 'w': 10000, 'm': 1000000}[match[2]]
-    return int(n) if math.isfinite(n) and n <= 2**53 - 1 else None
+    return int(n) if math.isfinite(n) and n == int(n) and n <= 2**53 - 1 else None
 
 
 def timestamp(value):
@@ -73,6 +73,8 @@ def timestamp(value):
             dt = datetime.strptime(s, '%Y%m%d').replace(tzinfo=ZoneInfo('Asia/Shanghai'))
         elif re.fullmatch(r'\d+(?:\.\d+)?', s):
             n = float(s)
+            if n <= 0:
+                return None
             if n > 1e14:
                 n /= 1e6
             elif n > 1e11:
@@ -90,7 +92,8 @@ def timestamp(value):
 
 
 def pick(row, names):
-    return next((row[k] for k in names if k in row and row[k] is not None and str(row[k]).strip()), None)
+    missing = ('', 'none', 'null', 'nan', 'n/a', 'undefined', '--', '-')
+    return next((row[k] for k in names if k in row and row[k] is not None and str(row[k]).strip().lower() not in missing), None)
 
 
 def normalize(row, platform=None, kind='content'):
@@ -101,8 +104,12 @@ def normalize(row, platform=None, kind='content'):
     result['platform'] = platform
     for key in ('published_at', 'collected_at'):
         result[key] = timestamp(result[key])
+    if isinstance(result['content_id'], (dict, list, bool)):
+        raise ValueError('内容 ID 需要字符串或数字')
     if kind == 'comment':
         comment_id = pick(row, ('comment_id', '评论ID'))
+        if isinstance(comment_id, (dict, list, bool)):
+            raise ValueError('评论 ID 需要字符串或数字')
         if not comment_id or not result['content_id']:
             raise ValueError('评论需要 comment_id 与所属内容 ID')
         return dict(platform=platform, comment_id=str(comment_id), content_id=str(result['content_id']),
@@ -116,7 +123,7 @@ def normalize(row, platform=None, kind='content'):
         result[key] = str(result[key]) if result[key] is not None else None
     # Existing privacy-preserving creator hash is preferred; nickname fallback is
     # explicitly labelled in the UI, and never reads raw platform user IDs.
-    result['author_id'] = row.get('creator_hash') or (hashlib.sha256((platform + ':' + result['author']).encode()).hexdigest() if result['author'] else None)
+    result['author_id'] = pick(row, ('creator_hash',)) or (hashlib.sha256((platform + ':' + result['author']).encode()).hexdigest() if result['author'] else None)
     return result
 
 
@@ -174,7 +181,7 @@ def install_triggers(db, table, spec, kind):
     platform, content_id, published = spec
     available = {r[1] for r in db.execute(f'PRAGMA table_info("{table}")')}
     def col(names):
-        cols = [f'NEW."{n}"' for n in names if n in available]
+        cols = [f'''CASE WHEN lower(trim(CAST(NEW."{n}" AS TEXT))) IN ('','none','null','nan','n/a','undefined','--','-') THEN NULL ELSE NEW."{n}" END''' for n in names if n in available]
         return 'coalesce(' + ','.join(cols) + ')' if len(cols) > 1 else cols[0] if cols else 'NULL'
     expressions = {k: col(v) for k, v in ALIASES.items()}
     expressions.update(platform=f"'{platform}'", content_id=f'CAST(NEW."{content_id}" AS TEXT)',

@@ -67,7 +67,7 @@ async def import_data(request: Request, filename: str, platform: str = '',
         # File parsing and SQLite work must not block the ASGI event loop.
         from starlette.concurrency import run_in_threadpool
         return await run_in_threadpool(service.import_file, filename, bytes(body), platform, kind, dry_run)
-    except (ValueError, UnicodeError, KeyError, TypeError) as exc:
+    except (ValueError, UnicodeError, KeyError, TypeError, csv.Error) as exc:
         raise HTTPException(400, '导入失败：' + str(exc)) from exc
     except Exception as exc:
         import zipfile
