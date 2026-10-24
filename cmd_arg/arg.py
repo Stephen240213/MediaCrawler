@@ -28,6 +28,8 @@ from types import SimpleNamespace
 from typing import Iterable, Optional, Sequence, Type, TypeVar
 
 import typer
+from pydantic import ValidationError
+from model.xhs_search_filters import XhsSearchFilters
 from typing_extensions import Annotated
 
 import config
@@ -198,6 +200,7 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
                 rich_help_panel="Basic Configuration",
             ),
         ] = config.KEYWORDS,
+        xhs_filters: Annotated[str, typer.Option('--xhs_filters', help='Xiaohongshu browser search filters as JSON')] = '',
         get_comment: Annotated[
             str,
             typer.Option(
@@ -344,6 +347,15 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
     ) -> SimpleNamespace:
         """MediaCrawler 命令行入口"""
 
+        parsed_filters = None
+        if xhs_filters:
+            try:
+                parsed_filters = XhsSearchFilters.model_validate_json(xhs_filters).model_dump()
+            except ValidationError as exc:
+                raise typer.BadParameter(str(exc), param_hint='--xhs_filters') from exc
+            if platform != PlatformEnum.XHS or crawler_type != CrawlerTypeEnum.SEARCH or start != 1:
+                raise typer.BadParameter('Browser filters require --platform xhs --type search --start 1')
+        config.XHS_SEARCH_FILTERS = parsed_filters
         enable_comment = _to_bool(get_comment)
         enable_sub_comment = _to_bool(get_sub_comment)
         enable_media = _to_bool(get_media)

@@ -27,6 +27,7 @@ from uuid import uuid4
 
 from ..schemas import CrawlerStartRequest, LogEntry
 from . import workbench_store
+from model.xhs_search_filters import XhsSearchProgress
 
 
 class CrawlerManager:
@@ -68,6 +69,14 @@ class CrawlerManager:
         """Create log entry"""
         if self.current_config and self.current_config.cookies:
             message = message.replace(self.current_config.cookies, '[Cookie hidden]')
+        if message.startswith('MC_PROGRESS ') and self.task:
+            try:
+                progress = XhsSearchProgress.model_validate_json(message.removeprefix('MC_PROGRESS '))
+                self.task['progress'] = progress.model_dump()
+                workbench_store.save_document('task', self.task)
+                message = f'网页筛选 · {progress.phase} · {progress.keyword} · 已采集 {progress.collected} · {progress.stop_reason}'
+            except ValueError:
+                pass
         self._log_id += 1
         entry = LogEntry(
             id=self._log_id,
@@ -132,6 +141,8 @@ class CrawlerManager:
                          'crawler_type': config.crawler_type.value, 'started_at': self.started_at.isoformat(),
                          'finished_at': None, 'outcome': 'running', 'exit_code': None,
                          'target': config.keywords or config.specified_ids or config.creator_ids}
+            if config.xhs_filters:
+                self.task['xhs_filters'] = config.xhs_filters.model_dump()
             workbench_store.save_document('task', self.task)
 
             # Log start information
@@ -148,7 +159,7 @@ class CrawlerManager:
                     encoding='utf-8',
                     bufsize=1,
                     cwd=str(self._project_root),
-                    env={**os.environ, "PYTHONUNBUFFERED": "1"}
+                    env={**os.environ, "PYTHONUNBUFFERED": "1", "MEDIACRAWLER_TASK_ID": self.task_id}
                 )
 
                 self.status = "running"
@@ -264,6 +275,9 @@ class CrawlerManager:
 
         if config.cookies:
             cmd.extend(["--cookies", config.cookies])
+
+        if config.xhs_filters is not None:
+            cmd.extend(['--xhs_filters', config.xhs_filters.model_dump_json()])
 
         cmd.extend(["--headless", "true" if config.headless else "false"])
 

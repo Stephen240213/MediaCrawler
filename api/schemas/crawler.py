@@ -18,7 +18,8 @@
 
 from enum import Enum
 from typing import Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from model.xhs_search_filters import XhsSearchFilters
 
 
 MAX_API_LIMIT_COUNT = 10000
@@ -77,6 +78,18 @@ class CrawlerStartRequest(BaseModel):
     headless: bool = False
     max_notes_count: Optional[int] = Field(default=None, ge=1, le=MAX_API_LIMIT_COUNT)
     max_comments_count: Optional[int] = Field(default=None, ge=1, le=MAX_API_LIMIT_COUNT)
+    xhs_filters: Optional[XhsSearchFilters] = None
+
+    @model_validator(mode='after')
+    def validate_browser_filters(self):
+        if self.xhs_filters is not None:
+            if self.platform != PlatformEnum.XHS or self.crawler_type != CrawlerTypeEnum.SEARCH:
+                raise ValueError('网页高级筛选仅支持小红书关键词搜索')
+            if self.start_page != 1:
+                raise ValueError('网页筛选从首批结果开始，起始页必须为 1')
+            if not self.keywords.strip():
+                raise ValueError('请填写搜索关键词')
+        return self
 
 
 class CrawlerStatusResponse(BaseModel):

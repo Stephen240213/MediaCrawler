@@ -12,6 +12,8 @@ export interface Task {
   id: string; platform: string; crawler_type: string; started_at: string
   finished_at: string | null; outcome: 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
   exit_code: number | null; target: string
+  xhs_filters?: import('@/types/crawler').XhsSearchFilters
+  progress?: {phase: string; keyword: string; requested_filters: Record<string,string>; verified_filters: Record<string,string>; discovered: number; collected: number; failed: number; scrolls: number; stop_reason: string}
 }
 export const platformNames: Record<string, string> = {
   xhs: '小红书', dy: '抖音', ks: '快手', bili: '哔哩哔哩', wb: '微博', tieba: '百度贴吧', zhihu: '知乎',

@@ -190,6 +190,15 @@ async def get_config_options():
     }
 
 
+@app.get('/api/config/xhs-search-filters')
+async def xhs_search_filter_options():
+    from model.xhs_search_filters import FILTER_GROUPS, XhsSearchFilters
+    return {'groups': [{'key': key, 'label': label,
+                        'options': [{'value': value, 'label': text} for value, text in choices.items()]}
+                       for key, (label, choices) in FILTER_GROUPS.items()],
+            'defaults': XhsSearchFilters().model_dump()}
+
+
 # Mount static resources - must be placed after all routes
 if os.path.exists(WEBUI_DIR):
     assets_dir = os.path.join(WEBUI_DIR, "assets")

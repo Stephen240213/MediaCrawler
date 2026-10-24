@@ -1,0 +1,19 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>
+.filter{position:fixed;top:80px;left:400px;padding:12px}.filters-wrapper{display:none;background:white}.filter:hover .filters-wrapper{display:block}.tags{display:inline-block;padding:10px}.active{color:red}body{height:4000px}
+</style></head><body><input id="search-input" aria-label="搜索小红书"><div class="filter"><span id="trigger">筛选</span><div class="filters-wrapper"></div></div><div id="results"></div>
+<script>
+const groups={排序依据:['综合','最新','最多点赞','最多评论','最多收藏'],笔记类型:['不限','视频','图文'],发布时间:['不限','一天内','一周内','半年内'],搜索范围:['不限','已看过','未看过','已关注'],位置距离:['不限','同城','附近']};
+const wrapper=document.querySelector('.filters-wrapper');
+let selected={},keyword='',page=1;
+async function search(){ const body={keyword,page,sort:selected['排序依据'],note_type:selected['笔记类型'],filters:selected};const r=await fetch('/api/sns/web/v1/search/notes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const json=await r.json();document.querySelector('#results').textContent=JSON.stringify(json.data.items); }
+for(const [label,options] of Object.entries(groups)){
+ selected[label]=options[0];const group=document.createElement('div');group.className='filters';const title=document.createElement('span');title.textContent=label;group.append(title);const container=document.createElement('div');container.className='tag-container';group.append(container);wrapper.append(group);
+ for(const [index,text] of options.entries()){
+  const duplicate=document.createElement('div');duplicate.className='tags'+(index===0?' active':'');duplicate.setAttribute('aria-hidden','true');duplicate.style.display='none';duplicate.innerHTML='<span>'+text+'</span>';container.append(duplicate);
+  const tag=document.createElement('div');tag.className='tags'+(index===0?' active':'');tag.innerHTML='<span>'+text+'</span>';container.append(tag);
+  tag.onclick=async()=>{for(const t of container.querySelectorAll('.tags:not([aria-hidden])'))t.classList.remove('active');tag.classList.add('active');selected[label]=text;document.querySelector('#trigger').textContent='已筛选';page=1;await search();};
+ }
+}
+document.querySelector('#search-input').onkeydown=async e=>{if(e.key==='Enter'){keyword=e.target.value;page=1;await search();}};
+window.addEventListener('wheel',async()=>{page++;await search();});
+</script></body></html>

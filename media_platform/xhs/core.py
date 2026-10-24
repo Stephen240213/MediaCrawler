@@ -135,6 +135,12 @@ class XiaoHongShuCrawler(AbstractCrawler):
             utils.logger.info("[XiaoHongShuCrawler.start] Xhs Crawler finished ...")
 
     async def search(self) -> None:
+        if getattr(config, 'XHS_SEARCH_FILTERS', None) is not None:
+            await self.search_with_browser_filters()
+            return
+        await self.search_with_api()
+
+    async def search_with_api(self) -> None:
         """Search for notes and retrieve their comment information."""
         utils.logger.info("[XiaoHongShuCrawler.search] Begin search Xiaohongshu keywords")
         xhs_limit_count = 20  # Xiaohongshu limit page fixed value
@@ -192,6 +198,97 @@ class XiaoHongShuCrawler(AbstractCrawler):
                 except DataFetchError:
                     utils.logger.error("[XiaoHongShuCrawler.search] Get note detail error")
                     break
+
+    async def search_with_browser_filters(self) -> None:
+        """Use only IDs returned by the filtered browser page; reuse detail stores."""
+        import json
+        import os
+        import re
+        from pathlib import Path
+        from datetime import datetime, timezone
+        from uuid import uuid4
+        from model.xhs_search_filters import XhsSearchFilters, XhsSearchProgress
+        from .browser_search import BrowserFilteredSearch, SearchFilterError
+
+        if config.XHS_INTERNATIONAL:
+            raise SearchFilterError('网页高级筛选暂只适配小红书国内版')
+        filters = XhsSearchFilters.model_validate(config.XHS_SEARCH_FILTERS)
+        run_id = os.environ.get('MEDIACRAWLER_TASK_ID', '')
+        if not re.fullmatch(r'[a-f0-9]{32}', run_id):
+            run_id = uuid4().hex
+        keywords = list(dict.fromkeys(k.strip() for k in config.KEYWORDS.replace('，', ',').split(',') if k.strip()))
+        if not keywords:
+            raise SearchFilterError('搜索关键词不能为空')
+        folder = Path(config.SAVE_DATA_PATH or 'data') / 'xhs' / 'search_metadata'
+        folder.mkdir(parents=True, exist_ok=True)
+        for index, keyword in enumerate(keywords, 1):
+            source_keyword_var.set(keyword)
+            state = {'phase': 'opening', 'keyword': keyword, 'requested_filters': filters.labels(),
+                     'verified_filters': {}, 'discovered': 0, 'collected': 0, 'failed': 0, 'scrolls': 0, 'stop_reason': ''}
+            started_at = datetime.now(timezone.utc).isoformat()
+            seen = set()
+
+            def report(phase, **updates):
+                state.update(updates, phase=phase)
+                event = XhsSearchProgress.model_validate(state)
+                print('MC_PROGRESS ' + event.model_dump_json(), flush=True)
+
+            browser = BrowserFilteredSearch(self.context_page, filters, report)
+            try:
+                async with asyncio.timeout(filters.timeout_seconds):
+                    report('opening')
+                    await self.context_page.goto(self.index_url, wait_until='domcontentloaded', timeout=30000)
+                    batch = await browser.apply(keyword)
+                    while batch is not None:
+                        candidates = []
+                        for item in batch.items:
+                            note_id, token = item.get('id'), item.get('xsec_token')
+                            if item.get('model_type') in ('rec_query', 'hot_query') or not note_id or not token:
+                                continue
+                            if note_id not in seen:
+                                seen.add(note_id)
+                                candidates.append(item)
+                        report('collecting', discovered=len(seen))
+                        for item in candidates:
+                            if state['collected'] >= config.CRAWLER_MAX_NOTES_COUNT:
+                                break
+                            report('details')
+                            detail = await self.get_note_detail_async_task(
+                                note_id=item['id'], xsec_source=item.get('xsec_source') or 'pc_search',
+                                xsec_token=item['xsec_token'], semaphore=asyncio.Semaphore(1))
+                            if not detail:
+                                report('details', failed=state['failed'] + 1)
+                                continue
+                            report('saving')
+                            await xhs_store.update_xhs_note(detail)
+                            state['collected'] += 1
+                            report('saving')
+                            await self.download_media(detail)
+                            await self.batch_get_note_comments([item['id']], [item['xsec_token']])
+                        if state['collected'] >= config.CRAWLER_MAX_NOTES_COUNT:
+                            browser.stop_reason = 'content_limit'
+                            break
+                        batch = await browser.next_batch()
+                    if state['collected'] == 0 and state['failed'] > 0:
+                        raise SearchFilterError('筛选已生效，但笔记详情均未能读取；请查看浏览器及日志')
+                    report('finished', stop_reason=browser.stop_reason or 'platform_end')
+            except asyncio.TimeoutError as exc:
+                report('failed', stop_reason='time_limit')
+                raise SearchFilterError('达到本关键词执行时间上限，已保留已保存的数据') from exc
+            except asyncio.CancelledError:
+                report('failed', stop_reason='cancelled')
+                raise
+            except Exception as exc:
+                report('failed', stop_reason=str(exc)[:500])
+                raise
+            finally:
+                metadata = {**state, 'task_id': run_id, 'requested_options': filters.model_dump(),
+                            'max_notes_count': config.CRAWLER_MAX_NOTES_COUNT,
+                            'started_at': started_at, 'finished_at': datetime.now(timezone.utc).isoformat()}
+                path = folder / f'{run_id}_{index}.json'
+                temporary = path.with_suffix('.tmp')
+                temporary.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding='utf-8')
+                temporary.replace(path)
 
     async def get_creators_and_notes(self) -> None:
         """Get creator's notes and retrieve their comment information."""

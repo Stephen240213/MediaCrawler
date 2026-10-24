@@ -1623,3 +1623,16 @@
   color:#8250d8;
   text-decoration:underline;
 }
+.wb-search-filters { margin-top: 22px; padding: 16px; background: #faf7ff; border: 1px solid #ece3f8; border-radius: 8px; }
+.wb-filter-heading { display: flex; gap: 9px; align-items: center; color: #9266ce; }
+.wb-filter-heading > div { flex: 1; }
+.wb-filter-heading h3 { margin: 0; font-size: 12px; }
+.wb-filter-heading p { font-size: 10px; color: #a28bae; margin-top: 4px; }
+.wb-filter-heading .wb-check { margin: 0; font-size: 10px; white-space: nowrap; }
+.wb-filter-fields { margin-top: 18px; }
+.wb-filter-summary { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 17px; }
+.wb-filter-summary > span { font-size: 10px; color: #8e67b7; background: #f0e9fb; border-radius: 4px; padding: 4px 6px; }
+.wb-filter-reset { display: flex; align-items: center; gap: 5px; background: none; border: 0; color: #9468c9; font-size: 11px !important; padding: 9px 0 0; }
+.wb-filter-progress { margin: 12px 0; padding: 10px; border-radius: 6px; background: #faf7fd; font-size: 10px; color: #8e7d9e; }
+.wb-filter-progress p { margin-top: 5px; overflow-wrap: anywhere; }
+@media(max-width: 680px) { .wb-filter-heading { flex-wrap: wrap; } .wb-filter-heading > div { min-width: 140px; } }

@@ -23,6 +23,8 @@ PLATFORM = "xhs"  # Platform, xhs | dy | ks | bili | wb | tieba | zhihu
 # 是否使用海外版小红书 (rednote.com)
 # 开启后 API 走 webapi.rednote.com，cookie 域使用 .rednote.com
 XHS_INTERNATIONAL = False
+# Optional structured browser search filters. None preserves the upstream search path.
+XHS_SEARCH_FILTERS = None
 
 KEYWORDS = "编程副业,编程兼职"  # Keyword search configuration, separated by English commas
 LOGIN_TYPE = "qrcode"  # qrcode or phone or cookie

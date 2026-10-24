@@ -1,3 +1,13 @@
+export interface XhsSearchFilters {
+  sort_by: string
+  note_type: string
+  publish_time: string
+  search_scope: string
+  location: string
+  max_scrolls: number
+  timeout_seconds: number
+}
+
 export interface CrawlerConfig {
   platform: string
   login_type: string
@@ -11,6 +21,7 @@ export interface CrawlerConfig {
   enable_media: boolean  // 是否下载媒体（封面/视频/图文图片），支持 xhs/dy/ks/bili/wb
   save_option: string
   cookies: string
+  xhs_filters?: XhsSearchFilters
   max_notes_count?: number
   max_comments_count?: number
   headless: boolean

@@ -3,6 +3,7 @@ import { Play, Square, ChevronDown, Search, FileText, Users } from 'lucide-react
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { useStartCrawler, useStopCrawler } from '@/hooks/useCrawler'
 import { platformNames, modeNames } from '@/lib/workbench'
+import { SearchFilters } from './SearchFilters'
 import { ParsedIdList } from '@/components/config/ParsedIdList'
 
 export const collectionTools = [
@@ -26,7 +27,7 @@ export function Collector() {
     if (!target.trim()) { setValidation('请先填写采集目标'); return }
     if (config.login_type === 'cookie' && !config.cookies.trim()) { setValidation('请填写 Cookie，或切换为扫码登录'); return }
     setValidation('')
-    start.mutate({...config, enable_media: config.enable_media && !['tieba', 'zhihu'].includes(config.platform)})
+    start.mutate({...config, xhs_filters: config.platform === 'xhs' && config.crawler_type === 'search' ? config.xhs_filters : undefined, start_page: config.platform === 'xhs' && config.crawler_type === 'search' && config.xhs_filters ? 1 : config.start_page, enable_media: config.enable_media && !['tieba', 'zhihu'].includes(config.platform)})
   }
   return <section className="wb-card wb-tool-form">
     <div className="wb-card-heading"><span className="wb-icon-box"><Icon size={21}/></span><div><h2>{tool.title}</h2><p>{tool.description}</p></div><span className="wb-badge">浏览器执行</span></div>
@@ -44,6 +45,8 @@ export function Collector() {
         <p className="wb-hint">{config.crawler_type === 'search' ? '多个关键词用英文逗号分隔。' : config.platform === 'xhs' ? '小红书请保留完整链接中的 xsec_token 参数。' : '支持的链接格式随平台而异。'}</p>
         {config.crawler_type !== 'search' && <ParsedIdList value={config.crawler_type === 'detail' ? config.specified_ids : config.creator_ids} platform={config.platform} type={config.crawler_type === 'detail' ? 'detail' : 'creator'}/ >}
         {config.login_type === 'cookie' && <label>Cookie<textarea rows={2} value={config.cookies} onChange={e => update({cookies: e.target.value})} autoComplete="off" spellCheck={false}/><small>仅用于当前任务，不保存到草稿或任务记录。</small></label>}
+        {config.platform === 'xhs' && config.crawler_type === 'search' && <SearchFilters disabled={busy}/>}
+        {config.platform !== 'xhs' && config.crawler_type === 'search' && <p className="wb-hint">此平台沿用现有搜索方式，网页高级筛选暂仅支持小红书。</p>}
         <div className="wb-separator"/>
         <h3>采集与保存</h3>
         <div className="wb-form-grid">
@@ -57,7 +60,7 @@ export function Collector() {
         </div>}
         <label className="wb-switch-row"><span><strong>下载媒体素材</strong><small>{['tieba','zhihu'].includes(config.platform) ? '当前平台不支持媒体下载' : '图片与视频会出现在素材管理中'}</small></span><input type="checkbox" disabled={['tieba','zhihu'].includes(config.platform)} checked={config.enable_media && !['tieba','zhihu'].includes(config.platform)} onChange={e => update({enable_media: e.target.checked})}/></label>
         <details className="wb-advanced"><summary><ChevronDown size={15}/>高级参数</summary><div className="wb-form-grid">
-          <label>起始页<input type="number" min={1} value={config.start_page} onChange={e => update({start_page: Number(e.target.value) || 1})}/></label>
+          <label>起始页<input disabled={config.platform === 'xhs' && config.crawler_type === 'search' && !!config.xhs_filters} type="number" min={1} value={config.start_page} onChange={e => update({start_page: Number(e.target.value) || 1})}/></label>
           <label className="wb-check"><input type="checkbox" checked={config.headless} onChange={e => update({headless: e.target.checked})}/>无头模式</label>
         </div><p className="wb-hint">首次扫码登录建议保持浏览器可见。</p></details>
       </fieldset>

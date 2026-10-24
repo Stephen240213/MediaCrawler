@@ -290,9 +290,10 @@ class CDPBrowserManager:
         Get browser WebSocket connection URL
         """
         try:
-            async with httpx.AsyncClient() as client:
+            # This is a loopback Chrome endpoint, never an internet request.
+            async with httpx.AsyncClient(trust_env=False) as client:
                 response = await client.get(
-                    f"http://localhost:{debug_port}/json/version", timeout=10
+                    f"http://127.0.0.1:{debug_port}/json/version", timeout=10
                 )
                 if response.status_code == 200:
                     data = response.json()
