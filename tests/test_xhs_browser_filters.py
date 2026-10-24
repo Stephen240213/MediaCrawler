@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -105,9 +106,10 @@ async def test_core_keeps_last_page_deduplicates_and_honors_small_limit(tmp_path
 
 @pytest_asyncio.fixture
 async def browser_page():
-    """Real Chrome, but all network requests are fulfilled locally by fixtures."""
+    """Headless browser; all network requests are fulfilled locally by fixtures."""
     async with async_playwright() as playwright:
-        browser=await playwright.chromium.launch(executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless=True)
+        executable = os.environ.get('MEDIACRAWLER_TEST_BROWSER')
+        browser=await playwright.chromium.launch(**({'executable_path':executable} if executable else {}),headless=True)
         page=await browser.new_page(viewport={'width':1200,'height':900})
         html=(Path(__file__).parent/'fixtures'/'xhs_search.html').read_text()
         async def route_handler(route):
