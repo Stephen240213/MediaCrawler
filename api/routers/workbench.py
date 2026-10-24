@@ -1,0 +1,159 @@
+"""Draft editing and local media library for the workbench."""
+import base64
+import binascii
+import io
+import json
+import mimetypes
+from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+from PIL import Image, UnidentifiedImageError
+
+from ..services import workbench_store as store
+
+router = APIRouter(prefix='/workbench', tags=['workbench'])
+DATA_ROOT = store.ROOT / 'data'
+IMAGE_SUFFIXES = {'.jpg', '.jpeg', '.png', '.webp', '.gif'}
+VIDEO_SUFFIXES = {'.mp4', '.webm', '.mov'}
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
+
+def media_path(relative: str) -> Path:
+    root = DATA_ROOT.resolve()
+    path = (root / relative).resolve()
+    if not path.is_relative_to(root) or not path.is_file() or path.suffix.lower() not in IMAGE_SUFFIXES | VIDEO_SUFFIXES:
+        raise HTTPException(404, '素材不存在')
+    return path
+
+
+def asset_info(path):
+    relative = path.relative_to(DATA_ROOT.resolve()).as_posix()
+    stat = path.stat()
+    return {'id': relative, 'name': path.name, 'kind': 'image' if path.suffix.lower() in IMAGE_SUFFIXES else 'video',
+            'size': stat.st_size, 'updated_at': stat.st_mtime, 'source': '导入' if relative.startswith('workbench/') else '采集',
+            'url': '/api/workbench/assets/file/' + relative}
+
+
+class AssetUpload(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    data: str = Field(max_length=14_000_000)
+
+
+@router.get('/assets')
+def list_assets(archived: bool = False):
+    if not DATA_ROOT.exists():
+        return {'assets': []}
+    assets = []
+    metadata = {item['id']: item for item in store.list_documents('asset')}
+    root = DATA_ROOT.resolve()
+    for path in DATA_ROOT.rglob('*'):
+        if path.suffix.lower() not in IMAGE_SUFFIXES | VIDEO_SUFFIXES or not path.is_file():
+            continue
+        resolved = path.resolve()
+        if resolved.is_relative_to(root) and not path.is_symlink():
+            item = asset_info(resolved)
+            meta = metadata.get(item['id'], {})
+            item['name'] = meta.get('name', item['name'])
+            item['archived'] = meta.get('archived', False)
+            if item['archived'] == archived:
+                assets.append(item)
+    return {'assets': sorted(assets, key=lambda a: a['updated_at'], reverse=True)}
+
+
+@router.post('/assets', status_code=201)
+def upload_asset(payload: AssetUpload):
+    try:
+        data = base64.b64decode(payload.data, validate=True)
+    except (ValueError, binascii.Error):
+        raise HTTPException(400, '图片编码无效')
+    if not data or len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(400, '请选择不超过 10 MB 的图片')
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            fmt = image.format
+            image.verify()
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+        raise HTTPException(400, '图片损坏或格式不受支持')
+    suffix = {'JPEG': '.jpg', 'PNG': '.png', 'WEBP': '.webp', 'GIF': '.gif'}.get(fmt)
+    if not suffix:
+        raise HTTPException(400, '支持 JPG、PNG、WebP、GIF 图片')
+    folder = DATA_ROOT / 'workbench' / 'assets'
+    if not folder.resolve().is_relative_to(DATA_ROOT.resolve()):
+        raise HTTPException(400, '素材目录无效')
+    folder.mkdir(parents=True, exist_ok=True)
+    # A server-generated name prevents client paths from controlling file writes.
+    path = folder / (uuid4().hex + suffix)
+    path.write_bytes(data)
+    item = asset_info(path.resolve())
+    item['name'] = Path(payload.name).name
+    store.save_document('asset', {'id': item['id'], 'name': item['name']})
+    return item
+
+
+@router.get('/assets/file/{relative:path}')
+def read_asset(relative: str):
+    path = media_path(relative)
+    return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0], headers={'X-Content-Type-Options': 'nosniff'})
+
+
+class AssetState(BaseModel):
+    archived: bool
+
+
+@router.patch('/assets/state/{relative:path}')
+def change_asset_state(relative: str, payload: AssetState):
+    path = media_path(relative)
+    item = asset_info(path)
+    metadata = store.get_document('asset', item['id']) or {'id': item['id'], 'name': item['name']}
+    metadata['archived'] = payload.archived
+    store.save_document('asset', metadata)
+    return metadata
+
+
+class DraftInput(BaseModel):
+    title: str = Field(default='', max_length=200)
+    content: str = Field(default='', max_length=20000)
+    tags: list[str] = Field(default_factory=list, max_length=50)
+    images: list[str] = Field(default_factory=list, max_length=18)
+    platform: str = Field(default='xhs', max_length=30)
+    version: int = Field(default=0, ge=0)
+
+
+@router.get('/drafts')
+def list_drafts():
+    return {'drafts': sorted(store.list_documents('draft'), key=lambda d: d['updated_at'], reverse=True)}
+
+
+@router.put('/drafts/{draft_id}')
+def save_draft(draft_id: str, payload: DraftInput):
+    if len(draft_id) > 64 or not draft_id.replace('-', '').isalnum():
+        raise HTTPException(400, '草稿编号无效')
+    for relative in payload.images:
+        if media_path(relative).suffix.lower() not in IMAGE_SUFFIXES:
+            raise HTTPException(400, '草稿预览仅支持图片素材')
+    # Check and write within one transaction so multiple tabs cannot overwrite changes.
+    with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT body FROM documents WHERE kind=? AND id=?', ('draft', draft_id)).fetchone()
+        previous = json.loads(row[0]) if row else None
+        if payload.version != (previous['version'] if previous else 0):
+            raise HTTPException(409, '草稿已在其他页面更新，请重新打开后再编辑；当前修改仍保留在编辑器中')
+        document = {**payload.model_dump(), 'id': draft_id, 'version': payload.version + 1,
+                    'updated_at': datetime.now(timezone.utc).isoformat()}
+        db.execute('INSERT OR REPLACE INTO documents VALUES (?,?,?)', ('draft', draft_id, json.dumps(document, ensure_ascii=False)))
+    return document
+
+
+@router.get('/tasks')
+def list_tasks():
+    from ..services import crawler_manager
+    documents = store.list_documents('task')
+    active_id = crawler_manager.task_id
+    for item in documents:
+        if item['outcome'] == 'running' and item['id'] != active_id:
+            item['outcome'] = 'interrupted'
+    return {'tasks': sorted(documents, key=lambda t: t['started_at'], reverse=True)[:100]}

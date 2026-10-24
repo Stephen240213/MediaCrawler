@@ -68,7 +68,7 @@ class CrawlerStartRequest(BaseModel):
     keywords: str = ""  # Keywords for search mode
     specified_ids: str = ""  # Post/video ID list for detail mode, comma-separated
     creator_ids: str = ""  # Creator ID list for creator mode, comma-separated
-    start_page: int = 1
+    start_page: int = Field(default=1, ge=1)
     enable_comments: bool = True
     enable_sub_comments: bool = False
     enable_media: bool = False
@@ -86,6 +86,7 @@ class CrawlerStatusResponse(BaseModel):
     crawler_type: Optional[str] = None
     started_at: Optional[str] = None
     error_message: Optional[str] = None
+    task: Optional[dict] = None
 
 
 class LogEntry(BaseModel):

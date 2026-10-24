@@ -23,8 +23,10 @@ import os
 from typing import Optional, List
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from ..schemas import CrawlerStartRequest, LogEntry
+from . import workbench_store
 
 
 class CrawlerManager:
@@ -43,6 +45,14 @@ class CrawlerManager:
         self._project_root = Path(__file__).parent.parent.parent
         # Log queue - for pushing to WebSocket
         self._log_queue: Optional[asyncio.Queue] = None
+        self.task_id = None
+        self.task = None
+        self.error_message = None
+
+    def _finish_task(self, outcome, exit_code=None):
+        if self.task and self.task['outcome'] == 'running':
+            self.task.update(outcome=outcome, finished_at=datetime.now().isoformat(), exit_code=exit_code)
+            workbench_store.save_document('task', self.task)
 
     @property
     def logs(self) -> List[LogEntry]:
@@ -56,6 +66,8 @@ class CrawlerManager:
 
     def _create_log_entry(self, message: str, level: str = "info") -> LogEntry:
         """Create log entry"""
+        if self.current_config and self.current_config.cookies:
+            message = message.replace(self.current_config.cookies, '[Cookie hidden]')
         self._log_id += 1
         entry = LogEntry(
             id=self._log_id,
@@ -112,6 +124,15 @@ class CrawlerManager:
 
             # Build command line arguments
             cmd = self._build_command(config)
+            self.current_config = config
+            self.error_message = None
+            self.started_at = datetime.now()
+            self.task_id = uuid4().hex
+            self.task = {'id': self.task_id, 'platform': config.platform.value,
+                         'crawler_type': config.crawler_type.value, 'started_at': self.started_at.isoformat(),
+                         'finished_at': None, 'outcome': 'running', 'exit_code': None,
+                         'target': config.keywords or config.specified_ids or config.creator_ids}
+            workbench_store.save_document('task', self.task)
 
             # Log start information
             entry = self._create_log_entry(f"Starting crawler: {' '.join(cmd)}", "info")
@@ -146,6 +167,8 @@ class CrawlerManager:
                 return True
             except Exception as e:
                 self.status = "error"
+                self.error_message = str(e)
+                self._finish_task('failed')
                 entry = self._create_log_entry(f"Failed to start crawler: {str(e)}", "error")
                 await self._push_log(entry)
                 return False
@@ -174,6 +197,7 @@ class CrawlerManager:
                     entry = self._create_log_entry("Process not responding, sending SIGKILL...", "warning")
                     await self._push_log(entry)
                     self.process.kill()
+                await asyncio.to_thread(self.process.wait, timeout=5)
 
                 entry = self._create_log_entry("Crawler process terminated", "info")
                 await self._push_log(entry)
@@ -181,7 +205,12 @@ class CrawlerManager:
             except Exception as e:
                 entry = self._create_log_entry(f"Error stopping crawler: {str(e)}", "error")
                 await self._push_log(entry)
+                if self.process and self.process.poll() is None:
+                    self.status = 'error'
+                    self.error_message = str(e)
+                    return False
 
+            self._finish_task('cancelled', self.process.returncode)
             self.status = "idle"
             self.current_config = None
 
@@ -199,7 +228,8 @@ class CrawlerManager:
             "platform": self.current_config.platform.value if self.current_config else None,
             "crawler_type": self.current_config.crawler_type.value if self.current_config else None,
             "started_at": self.started_at.isoformat() if self.started_at else None,
-            "error_message": None
+            "error_message": self.error_message,
+            "task": self.task,
         }
 
     def _build_command(self, config: CrawlerStartRequest) -> list:
@@ -273,14 +303,18 @@ class CrawlerManager:
                 exit_code = self.process.returncode if self.process else -1
                 if exit_code == 0:
                     entry = self._create_log_entry("Crawler completed successfully", "success")
+                    self._finish_task('completed', exit_code)
                 else:
                     entry = self._create_log_entry(f"Crawler exited with code: {exit_code}", "warning")
+                    self.error_message = f'采集进程退出，退出码 {exit_code}'
+                    self._finish_task('failed', exit_code)
                 await self._push_log(entry)
-                self.status = "idle"
+                self.status = "idle" if exit_code == 0 else "error"
 
         except asyncio.CancelledError:
             pass
         except Exception as e:
+            self.error_message = str(e)
             entry = self._create_log_entry(f"Error reading output: {str(e)}", "error")
             await self._push_log(entry)
 

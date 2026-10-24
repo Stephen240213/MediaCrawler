@@ -21,7 +21,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
 router = APIRouter(prefix="/data", tags=["data"])
@@ -42,6 +42,9 @@ def get_file_info(file_path: Path) -> dict:
                 data = json.load(f)
                 if isinstance(data, list):
                     record_count = len(data)
+        elif file_path.suffix == ".jsonl":
+            with open(file_path, "r", encoding="utf-8") as f:
+                record_count = sum(1 for line in f if line.strip())
         elif file_path.suffix == ".csv":
             with open(file_path, "r", encoding="utf-8") as f:
                 record_count = sum(1 for _ in f) - 1  # Subtract header row
@@ -65,7 +68,7 @@ async def list_data_files(platform: Optional[str] = None, file_type: Optional[st
         return {"files": []}
 
     files = []
-    supported_extensions = {".json", ".csv", ".xlsx", ".xls"}
+    supported_extensions = {".json", ".jsonl", ".csv", ".xlsx", ".xls"}
 
     for root, dirs, filenames in os.walk(DATA_DIR):
         root_path = Path(root)
@@ -96,7 +99,7 @@ async def list_data_files(platform: Optional[str] = None, file_type: Optional[st
 
 
 @router.get("/files/{file_path:path}")
-async def get_file_content(file_path: str, preview: bool = True, limit: int = 100):
+async def get_file_content(file_path: str, preview: bool = True, limit: int = Query(default=100, ge=1, le=1000)):
     """Get file content or preview"""
     full_path = DATA_DIR / file_path
 
@@ -120,7 +123,16 @@ async def get_file_content(file_path: str, preview: bool = True, limit: int = 10
                     data = json.load(f)
                     if isinstance(data, list):
                         return {"data": data[:limit], "total": len(data)}
-                    return {"data": data, "total": 1}
+                    return {"data": [data], "total": 1}
+            elif full_path.suffix == ".jsonl":
+                rows, total = [], 0
+                with open(full_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip():
+                            total += 1
+                            if len(rows) < limit:
+                                rows.append(json.loads(line))
+                return {"data": rows, "total": total}
             elif full_path.suffix == ".csv":
                 import csv
                 with open(full_path, "r", encoding="utf-8") as f:
@@ -152,6 +164,8 @@ async def get_file_content(file_path: str, preview: bool = True, limit: int = 10
                 raise HTTPException(status_code=400, detail="Unsupported file type for preview")
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="Invalid JSON file")
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     else:
@@ -200,7 +214,7 @@ async def get_data_stats():
         "by_type": {}
     }
 
-    supported_extensions = {".json", ".csv", ".xlsx", ".xls"}
+    supported_extensions = {".json", ".jsonl", ".csv", ".xlsx", ".xls"}
 
     for root, dirs, filenames in os.walk(DATA_DIR):
         root_path = Path(root)
