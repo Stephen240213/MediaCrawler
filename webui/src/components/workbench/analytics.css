@@ -1,0 +1,52 @@
+.analytics { display: grid; gap: 20px; color: #4c3f5c; }
+.analytics .wb-card { padding: 22px; min-width: 0; }
+.analytics h2 { font-size: 15px; font-weight: 650; margin: 0 0 12px; }
+.analytics p { line-height: 1.75; }
+.an-heading, .an-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.an-heading { justify-content: space-between; margin-bottom: 14px; }
+.an-heading h2 { margin: 0; }
+.an-actions { margin-top: 14px; font-size: 12px; }
+.an-filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 12px; }
+.analytics label { display: grid; gap: 7px; font-size: 12px; min-width: 0; }
+.analytics input, .analytics select { width: 100%; min-width: 0; border: 1px solid #e6ddeb; border-radius: 7px; background: white; padding: 9px; color: #51455f; font: inherit; }
+.analytics input:focus, .analytics select:focus, .analytics button:focus-visible { outline: 2px solid #9470c8; outline-offset: 2px; }
+.an-muted { font-size: 12px; color: #81738e; margin: 8px 0; }
+.an-empty { padding: 28px 10px; color: #8e7d9e; text-align: center; font-size: 13px; }
+.an-empty h2 { color: #5f4775; }
+.an-empty .wb-button { margin-top: 14px; }
+.an-cards { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; }
+.an-cards p { font-size: 12px; color: #84758f; margin-bottom: 12px; }
+.an-cards strong { font-size: clamp(17px, 2vw, 26px); font-weight: 600; color: #6e469e; overflow-wrap: anywhere; }
+.an-cards .wb-card:last-child strong { font-size: 15px; }
+.an-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; }
+.an-grid.three { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.an-bars { max-height: 255px; overflow-y: auto; }
+.an-bars button { width: 100%; display: grid; grid-template-columns: minmax(65px,1fr) minmax(30px,2fr) 55px; gap: 12px; align-items: center; background: transparent; border: 0; padding: 9px 2px; text-align: left; font-size: 12px; color: #6f5e7b; cursor: pointer; }
+.an-bars button:hover { background: #faf6ff; }
+.an-bars button > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.an-bars strong { text-align: right; font-size: 12px; }
+.an-track { background: #f4eff9; border-radius: 3px; height: 8px; }
+.an-track i { display: block; height: 100%; background: #b594d8; border-radius: 3px; min-width: 2px; }
+.an-line { width: 100%; height: 130px; color: #9a72c8; margin: 10px 0; }
+.an-line circle { cursor: pointer; fill: #9a72c8; }
+.an-author-list { display: grid; gap: 3px; max-height: 270px; overflow: auto; }
+.an-author-list button { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 12px 4px; background: none; border: none; border-bottom: 1px solid #f1eaf7; color: #715b82; text-align: left; font-size: 12px; cursor: pointer; }
+.an-author-list button:hover { background: #faf6ff; }
+.an-table-wrap { overflow-x: auto; margin: 16px 0; }
+.analytics table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.analytics th, .analytics td { text-align: left; padding: 12px 9px; border-bottom: 1px solid #efe8f4; min-width: 95px; max-width: 310px; overflow-wrap: anywhere; vertical-align: top; }
+.analytics th { background: #faf7fd; font-weight: 600; color: #897295; }
+.analytics td small { display: block; margin-top: 5px; color: #96859f; }
+.analytics td a { color: #9065bd; display: block; margin-bottom: 9px; }
+.analytics .an-table-wrap .wb-button { padding: 5px 8px; font-size: 11px; }
+.an-notice, .an-selection { background: #f7f2fc; border-radius: 8px; padding: 12px; color: #8056a2; font-size: 12px; overflow-wrap: anywhere; }
+.an-error { background: #fff2f3; color: #a23751; padding: 15px; border-radius: 8px; }
+.an-definitions { font-size: 12px; color: #8d7c99; }
+.an-definitions summary { cursor: pointer; color: #705384; font-weight: 600; }
+.an-definitions p { margin-top: 10px; }
+.an-import ul { font-size: 12px; padding-left: 20px; }
+.an-history .an-cards > div { padding: 10px; background: #faf7fd; border-radius: 7px; }
+.an-history .an-cards strong { font-size: 14px; }
+.an-history small { font-size: 10px; color: #93829f; }
+@media(max-width:1100px) { .an-grid.three { grid-template-columns: 1fr; } .an-cards { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width:680px) { .analytics .wb-card { padding: 16px; } .an-grid { grid-template-columns: 1fr; } .an-filter-grid { grid-template-columns: 1fr; } .an-cards { gap: 8px; } .an-cards strong { font-size: 19px; } }

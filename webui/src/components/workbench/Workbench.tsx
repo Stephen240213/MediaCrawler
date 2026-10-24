@@ -12,13 +12,15 @@ import { AssetLibrary } from './AssetLibrary'
 import { DraftStudio } from './DraftStudio'
 import { DataExplorer } from '@/components/data/DataExplorer'
 import './workbench.css'
+import { Analytics } from './Analytics'
 
-type Page = 'collect' | 'drafts' | 'assets' | 'data' | 'tasks'
+type Page = 'collect' | 'drafts' | 'assets' | 'data' | 'tasks' | 'analytics'
 const pages = [
   {id: 'collect' as const, label: '采集工作台', icon: LayoutDashboard},
   {id: 'drafts' as const, label: '草稿预览', icon: FilePenLine},
   {id: 'assets' as const, label: '素材管理', icon: Images},
   {id: 'data' as const, label: '数据文件', icon: Database},
+  {id: 'analytics' as const, label: '数据分析', icon: Activity},
   {id: 'tasks' as const, label: '任务记录', icon: Activity},
 ]
 const localTools = [
@@ -51,6 +53,7 @@ export function Workbench({onLicense}: {onLicense: () => void}) {
       <div hidden={page !== 'drafts'}><DraftStudio assetRequest={assetRequest}/></div>
       {page === 'assets' && <AssetLibrary onUse={useAsset}/>}
       {page === 'data' && <section className="wb-card wb-data-panel"><DataExplorer/></section>}
+      {page === 'analytics' && <Analytics/>}
       {page === 'tasks' && <><TaskHistory/><div className="wb-history-current"><TaskPanel/></div></>}
       <footer className="wb-footer">MediaCrawler · 本机内容工作台<span>内容采集 · 素材整理 · 草稿预览</span></footer>
       </main>

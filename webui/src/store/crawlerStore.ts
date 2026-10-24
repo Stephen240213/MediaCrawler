@@ -57,7 +57,7 @@ const defaultConfig: CrawlerConfig = {
   enable_comments: true,
   enable_sub_comments: false,
   enable_media: false,
-  save_option: 'json',
+  save_option: 'sqlite',
   cookies: '',
   headless: false,
 }
