@@ -80,14 +80,14 @@ BROWSER_LAUNCH_TIMEOUT = 60
 # 用户需要在 Chrome 中开启远程调试：chrome://inspect/#remote-debugging
 # 或者使用命令行参数启动 Chrome：--remote-debugging-port=9222
 # 这种方式反检测效果最好，因为直接使用用户真实浏览器的所有 Cookie、扩展和浏览历史
-CDP_CONNECT_EXISTING = True
+CDP_CONNECT_EXISTING = False
 
 # 程序结束时是否自动关闭浏览器
 # 设置为 False 可以保持浏览器运行，方便调试
 AUTO_CLOSE_BROWSER = True
 
 # Data saving type option configuration, supports: csv, db, json, jsonl, sqlite, excel, postgres. It is best to save to DB, with deduplication function.
-SAVE_DATA_OPTION = "jsonl"  # csv or db or json or jsonl or sqlite or excel or postgres
+SAVE_DATA_OPTION = "json"  # csv or db or json or jsonl or sqlite or excel or postgres
 
 # Data saving path, if not specified by default, it will be saved to the data folder.
 SAVE_DATA_PATH = ""

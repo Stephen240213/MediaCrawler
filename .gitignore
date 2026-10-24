@@ -184,3 +184,8 @@ debug_tools
 
 database/*.db
 .omx/
+# Local deployment runtime
+.local-tools/
+.runtime/
+.DS_Store
+.pnpm-store/
