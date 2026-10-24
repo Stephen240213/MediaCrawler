@@ -16,7 +16,7 @@
 # 详细许可条款请参阅项目根目录下的LICENSE文件。
 # 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
 
-from sqlalchemy import text
+from sqlalchemy import text, event
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from contextlib import asynccontextmanager
@@ -70,6 +70,9 @@ def get_async_engine(db_type: str = None):
         raise ValueError(f"Unsupported database type: {db_type}")
 
     engine = create_async_engine(db_url, echo=False)
+    if db_type == "sqlite":
+        from database.analytics import register_functions
+        event.listen(engine.sync_engine, 'connect', lambda connection, _: register_functions(connection))
     _engines[db_type] = engine
     return engine
 
@@ -82,6 +85,10 @@ async def create_tables(db_type: str = None):
     if engine:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        if db_type == 'sqlite':
+            import asyncio
+            from database.analytics import migrate
+            await asyncio.to_thread(migrate, sqlite_db_config['db_path'])
 
 
 @asynccontextmanager

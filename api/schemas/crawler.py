@@ -73,7 +73,7 @@ class CrawlerStartRequest(BaseModel):
     enable_comments: bool = True
     enable_sub_comments: bool = False
     enable_media: bool = False
-    save_option: SaveDataOptionEnum = SaveDataOptionEnum.JSONL
+    save_option: SaveDataOptionEnum = SaveDataOptionEnum.SQLITE
     cookies: str = ""
     headless: bool = False
     max_notes_count: Optional[int] = Field(default=None, ge=1, le=MAX_API_LIMIT_COUNT)

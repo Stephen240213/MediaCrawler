@@ -34,6 +34,7 @@ from fastapi.responses import FileResponse
 
 from .routers import crawler_router, data_router, websocket_router
 from .routers.workbench import router as workbench_router
+from .routers.analytics import router as analytics_router
 
 # Project root directory (used for running subprocesses like uv run main.py)
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -66,6 +67,7 @@ app.include_router(crawler_router, prefix="/api")
 app.include_router(data_router, prefix="/api")
 app.include_router(websocket_router, prefix="/api")
 app.include_router(workbench_router, prefix="/api")
+app.include_router(analytics_router, prefix="/api")
 
 
 @app.get("/")
