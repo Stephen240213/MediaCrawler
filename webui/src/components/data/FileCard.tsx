@@ -15,6 +15,7 @@ interface FileCardProps {
 
 const fileIcons: Record<string, typeof FileJson> = {
   json: FileJson,
+  jsonl: FileJson,
   csv: FileSpreadsheet,
   xlsx: FileSpreadsheet,
   xls: FileSpreadsheet,
@@ -55,7 +56,7 @@ export function FileCard({ file }: FileCardProps) {
   }
 
   // 检查是否支持预览
-  const isPreviewable = ['json', 'csv', 'xlsx', 'xls'].includes(file.type.toLowerCase())
+  const isPreviewable = ['json', 'jsonl', 'csv', 'xlsx', 'xls'].includes(file.type.toLowerCase())
 
   const handleDownload = () => {
     const url = dataApi.getDownloadUrl(file.path)
@@ -93,7 +94,7 @@ export function FileCard({ file }: FileCardProps) {
             <Badge variant="outline" className={`text-[10px] font-mono ${styles.badge}`}>
               .{file.type.toUpperCase()}
             </Badge>
-            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex gap-1 opacity-100 transition-opacity">
               {isPreviewable && (
                 <Button
                   variant="ghost"

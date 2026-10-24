@@ -28,6 +28,7 @@ export interface CrawlerStatus {
   platform: string | null
   crawler_type: string | null
   started_at: string | null
+  task?: import('./workbench').Task | null
   error_message: string | null
 }
 

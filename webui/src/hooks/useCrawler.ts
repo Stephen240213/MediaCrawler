@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { crawlerApi, configApi } from '@/lib/api'
 import { useCrawlerStore } from '@/store/crawlerStore'
+import { errorMessage } from '@/lib/workbench'
 import type { CrawlerConfig } from '@/types/crawler'
 
 export function useCrawlerStatus() {
@@ -32,12 +33,12 @@ export function useStartCrawler() {
       setStatus('running')
     },
     onSuccess: () => {
-      toast.success('Crawler started successfully')
+      toast.success('采集任务已启动')
       queryClient.invalidateQueries({ queryKey: ['crawlerStatus'] })
     },
     onError: (error: Error) => {
       setStatus('idle')
-      toast.error(`Failed to start crawler: ${error.message}`)
+      toast.error(`启动失败：${errorMessage(error)}`)
     },
   })
 }
@@ -52,12 +53,12 @@ export function useStopCrawler() {
       setStatus('stopping')
     },
     onSuccess: () => {
-      toast.success('Crawler stopped')
+      toast.success('任务已停止')
       setStatus('idle')
       queryClient.invalidateQueries({ queryKey: ['crawlerStatus'] })
     },
     onError: (error: Error) => {
-      toast.error(`Failed to stop crawler: ${error.message}`)
+      toast.error(`停止失败：${errorMessage(error)}`)
     },
   })
 }

@@ -11,6 +11,8 @@ export interface CrawlerConfig {
   enable_media: boolean  // 是否下载媒体（封面/视频/图文图片），支持 xhs/dy/ks/bili/wb
   save_option: string
   cookies: string
+  max_notes_count?: number
+  max_comments_count?: number
   headless: boolean
 }
 
