@@ -1,3 +1,4 @@
+import { useSession, canOperate } from '@/lib/session'
 import { useState } from 'react'
 import { Play, Square, ChevronDown, Search, FileText, Users } from 'lucide-react'
 import { useCrawlerStore } from '@/store/crawlerStore'
@@ -12,6 +13,7 @@ export const collectionTools = [
   {id: 'creator', title: '创作者采集', description: '采集创作者主页中的内容', icon: Users},
 ]
 export function Collector() {
+  const writable = canOperate(useSession())
   const config = useCrawlerStore(s => s.config)
   const update = useCrawlerStore(s => s.updateConfig)
   const status = useCrawlerStore(s => s.status)
@@ -23,6 +25,7 @@ export function Collector() {
   const Icon = tool.icon
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
+    if (!writable) return
     const target = config.crawler_type === 'search' ? config.keywords : config.crawler_type === 'detail' ? config.specified_ids : config.creator_ids
     if (!target.trim()) { setValidation('请先填写采集目标'); return }
     if (config.login_type === 'cookie' && !config.cookies.trim()) { setValidation('请填写 Cookie，或切换为扫码登录'); return }
@@ -32,7 +35,7 @@ export function Collector() {
   return <section className="wb-card wb-tool-form">
     <div className="wb-card-heading"><span className="wb-icon-box"><Icon size={21}/></span><div><h2>{tool.title}</h2><p>{tool.description}</p></div><span className="wb-badge">浏览器执行</span></div>
     <form onSubmit={submit}>
-      <fieldset disabled={busy}>
+      <fieldset disabled={busy || !writable}>
         <div className="wb-form-grid">
           <label>目标平台<select value={config.platform} onChange={e => update({platform: e.target.value})}>{Object.entries(platformNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
           <label>登录方式<select value={config.login_type} onChange={e => update({login_type: e.target.value})}><option value="qrcode">二维码登录</option><option value="cookie">Cookie 登录</option></select></label>
@@ -65,7 +68,7 @@ export function Collector() {
         </div><p className="wb-hint">首次扫码登录建议保持浏览器可见。</p></details>
       </fieldset>
       {validation && <p role="alert" className="wb-error">{validation}</p>}
-      <div className="wb-form-footer"><span>{config.save_option === 'sqlite' ? '结果写入本机采集 SQLite 库，可在数据分析中查看' : ['db', 'mongodb', 'postgres'].includes(config.save_option) ? '结果写入已配置的数据库' : '结果保存在本机 data 目录'}</span>{busy ? <button type="button" className="wb-button danger" disabled={status === 'stopping' || stop.isPending} onClick={() => stop.mutate()}><Square size={16}/>{status === 'stopping' ? '正在停止…' : '停止任务'}</button> : <button className="wb-button primary" type="submit"><Play size={16}/>执行{modeNames[config.crawler_type]}</button>}</div>
+      <div className="wb-form-footer"><span>{config.save_option === 'sqlite' ? '结果写入本机采集 SQLite 库，可在数据分析中查看' : ['db', 'mongodb', 'postgres'].includes(config.save_option) ? '结果写入已配置的数据库' : '结果保存在本机 data 目录'}</span>{busy ? <button type="button" className="wb-button danger" disabled={!writable || status === 'stopping' || stop.isPending} onClick={() => stop.mutate()}><Square size={16}/>{status === 'stopping' ? '正在停止…' : '停止任务'}</button> : <button className="wb-button primary" type="submit" disabled={!writable}><Play size={16}/>执行{modeNames[config.crawler_type]}</button>}</div>
     </form>
   </section>
 }

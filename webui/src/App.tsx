@@ -1,3 +1,4 @@
+import { SessionProvider } from '@/lib/session'
 import { useState } from 'react'
 import { Toaster } from 'sonner'
 import { Workbench } from '@/components/workbench/Workbench'
@@ -29,7 +30,7 @@ function App() {
     <div>
       {(!licenseAccepted || showDisclaimer) && <LicenseDisclaimer onAccept={handleLicenseAccept} />}
       {licenseAccepted && !showDisclaimer && !envChecked && <EnvironmentCheck onCheckComplete={handleEnvCheckComplete} />}
-      <Workbench onLicense={handleShowDisclaimer} />
+      <SessionProvider><Workbench onLicense={handleShowDisclaimer} /></SessionProvider>
 
       {/* Toast notifications - Theme-aware style */}
       <Toaster

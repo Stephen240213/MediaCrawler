@@ -12,6 +12,7 @@ import { AssetLibrary } from './AssetLibrary'
 import { DraftStudio } from './DraftStudio'
 import { DataExplorer } from '@/components/data/DataExplorer'
 import './workbench.css'
+import { RemoteStatus } from './RemoteStatus'
 import { Analytics } from './Analytics'
 
 type Page = 'collect' | 'drafts' | 'assets' | 'data' | 'tasks' | 'analytics'
@@ -45,6 +46,7 @@ export function Workbench({onLicense}: {onLicense: () => void}) {
     </aside>
     <div className="wb-main"><header className="wb-topbar"><span>工作空间 <span className="wb-slash">/</span> <strong>{active.label}</strong></span><span className={`wb-service ${online ? '' : 'offline'}`}><i/>{isError ? '本机服务离线' : online ? '本机服务在线' : '正在连接服务'}<span>127.0.0.1</span></span></header>
       <main className="wb-content"><div className="wb-page-heading"><div><p className="wb-eyebrow">YOUR LOCAL WORKSPACE</p><h1>{active.label}</h1><p>{page === 'analytics' ? '基于本机 SQLite 采集数据，查看趋势、互动与评论。' : page === 'collect' ? '从内容发现到灵感整理，让每一步清晰可见。' : page === 'drafts' ? '把灵感整理为草稿，一边编辑，一边预览。' : page === 'assets' ? '管理采集媒体与本机图片，随时用于草稿。' : page === 'tasks' ? '查看真实执行结果，回溯每次采集。' : '预览与导出已保存的采集数据。'}</p></div><span className="wb-local-label"><Monitor size={16}/>本机工作台</span></div>
+      <RemoteStatus/>
       {page === 'collect' && <>
         <section className="wb-hero"><span className="wb-hero-icon"><Sparkles size={27}/></span><div><h2>发现内容，沉淀灵感</h2><p>搜索内容、采集评论，将图片与想法整理成自己的草稿。</p><span>内容采集 <i/> 本机素材 <i/> 草稿预览</span></div><button className="wb-button primary" onClick={() => setPage('drafts')}><FilePenLine size={16}/>打开草稿 <ArrowUpRight size={15}/></button></section>
         <div className="wb-workspace-tabs"><span className="selected">采集工具</span><button onClick={() => setPage('data')}>数据与结果 <ArrowUpRight size={13}/></button><span className="wb-tabs-status">{status === 'running' ? '任务执行中' : status === 'stopping' ? '任务停止中' : '选择工具开始采集'}</span></div>

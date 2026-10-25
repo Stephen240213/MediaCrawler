@@ -1639,3 +1639,9 @@
 .wb-filter-progress { margin: 12px 0; padding: 10px; border-radius: 6px; background: #faf7fd; font-size: 10px; color: #8e7d9e; }
 .wb-filter-progress p { margin-top: 5px; overflow-wrap: anywhere; }
 @media(max-width: 680px) { .wb-filter-heading { flex-wrap: wrap; } .wb-filter-heading > div { min-width: 140px; } }
+
+.wb-remote-status { background:#f4effb; border:1px solid #e6dcf3; border-radius:10px; padding:14px 18px; margin-bottom:20px; color:#785892; font-size:12px; overflow-wrap:anywhere; }
+.wb-remote-status > div { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; margin-bottom:5px; }
+.wb-remote-status p { margin-top:4px; line-height:1.7; }
+.wb-session-gate { max-width:650px; margin:10vh auto; padding:28px; font-size:15px; line-height:1.8; }
+.wb-session-gate button { padding:10px 18px; margin-top:18px; border:1px solid #d9caeb; border-radius:8px; background:#f4effb; }

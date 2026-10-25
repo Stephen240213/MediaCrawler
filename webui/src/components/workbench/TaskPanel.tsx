@@ -15,7 +15,7 @@ export function TaskPanel() {
   const elapsed = task ? Math.max(0, Math.floor(((task.finished_at ? new Date(task.finished_at).getTime() : Date.now()) - new Date(task.started_at).getTime()) / 1000)) : 0
   let steps = [
     {title: '提交采集参数', detail: task ? `${platformNames[task.platform]} · ${modeNames[task.crawler_type]}` : '等待创建任务', done: !!task},
-    {title: '浏览器执行', detail: running ? '登录、采集与保存的实际情况请查看日志' : task ? '进程已结束' : '沿用现有浏览器执行方式', done: finished},
+    {title: '浏览器执行', detail: running ? '登录、采集与保存的实际情况请查看日志' : task ? (task.outcome === 'interrupted' ? '服务中断，请在采集电脑确认是否存在遗留进程' : '进程已结束') : '沿用现有浏览器执行方式', done: finished},
     {title: '任务结果', detail: task ? outcomeNames[task.outcome] : '完成后可前往数据与素材查看', done: finished},
   ]
   const progress = task?.progress
@@ -33,9 +33,9 @@ export function TaskPanel() {
       {task?.xhs_filters && <div className="wb-filter-progress"><strong>{progress ? labels[progress.phase] : '准备网页筛选'}</strong><p>当前关键词：{progress?.keyword || '等待浏览器开始搜索'}</p>{progress && <><p>发现 {progress.discovered} · 已保存 {progress.collected} · 详情失败 {progress.failed} · 滚动 {progress.scrolls} 次</p><p>请求：{Object.entries(progress.requested_filters).map(([key,value]) => `${key}：${value}`).join(' · ')}</p><p>已确认：{Object.keys(progress.verified_filters).length ? Object.entries(progress.verified_filters).map(([key,value]) => `${key}：${value}`).join(' · ') : '尚未完成全部筛选校验'}</p>{progress.stop_reason && <p>{reasons[progress.stop_reason] || progress.stop_reason}</p>}</>}</div>}
       <ol className="wb-steps">{steps.map((step, i) => <li key={step.title} className={step.done ? 'done' : running && (task?.xhs_filters ? step.title === labels[progress?.phase || ''] : i === 1) ? 'active' : ''}><span className="wb-step-dot">{step.done ? <CheckCircle2 size={17}/> : i + 1}</span><div><strong>{step.title}</strong><p>{step.detail}</p></div></li>)}</ol>
       {data?.error_message && <p className="wb-error" role="alert"><AlertCircle size={15}/>{data.error_message}</p>}
-      <p className="wb-hint">进度依据真实进程状态展示；平台未提供总量时不估算百分比。</p>
+      <p className="wb-hint">进度依据真实进程状态展示；日志每 5 秒补取，网络断开不会主动停止电脑上的任务。</p>
       <div className="wb-log-heading"><strong>执行日志</strong><button type="button" onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '展开'}</button></div>
-      <div className={`wb-live-logs ${expanded ? 'expanded' : ''}`} aria-label="执行日志">{logs.length ? logs.slice(expanded ? -500 : -8).map(log => <div key={log.id} className={`log-${log.level}`}><time>{log.timestamp}</time><span>{log.message}</span></div>) : <p>执行后将在此显示浏览器与采集日志。</p>}</div>
+      <div className={`wb-live-logs ${expanded ? 'expanded' : ''}`} aria-label="执行日志">{logs.length ? logs.slice(expanded ? -500 : -8).map(log => <div key={log.id} className={`log-${log.level}`}><time title={log.timestamp}>{log.timestamp.includes('T') ? new Date(log.timestamp).toLocaleTimeString('zh-CN', {hour12: false}) : log.timestamp}</time><span>{log.message}</span></div>) : <p>执行后将在此显示浏览器与采集日志。</p>}</div>
     </div>
   </section>
 }

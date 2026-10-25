@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { crawlerApi, configApi } from '@/lib/api'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { errorMessage } from '@/lib/workbench'
+import type { CrawlerStatus } from '@/lib/api'
 import type { CrawlerConfig } from '@/types/crawler'
 
 export function useCrawlerStatus() {
@@ -32,8 +33,8 @@ export function useStartCrawler() {
       clearLogs()
       setStatus('running')
     },
-    onSuccess: () => {
-      toast.success('采集任务已启动')
+    onSuccess: (response) => {
+      toast.success(response.data.replayed ? '已找到同一请求的任务记录，未重复启动' : '采集任务已启动')
       queryClient.invalidateQueries({ queryKey: ['crawlerStatus'] })
     },
     onError: (error: Error) => {
@@ -48,7 +49,11 @@ export function useStopCrawler() {
   const setStatus = useCrawlerStore((state) => state.setStatus)
 
   return useMutation({
-    mutationFn: () => crawlerApi.stop(),
+    mutationFn: () => {
+      const status = queryClient.getQueryData<CrawlerStatus>(['crawlerStatus'])
+      if (!status?.task?.id) throw new Error('无法确认任务 ID，请刷新状态后重试')
+      return crawlerApi.stop(status.task.id)
+    },
     onMutate: () => {
       setStatus('stopping')
     },
@@ -73,7 +78,7 @@ export function useCrawlerLogs() {
       setLogs(data.logs)
       return data.logs
     },
-    refetchInterval: false, // Use WebSocket instead
+    refetchInterval: 5000, // Durable HTTP fallback also repairs WebSocket gaps.
   })
 }
 

@@ -36,6 +36,7 @@ export interface CrawlerStatus {
 }
 
 export interface LogEntry {
+  task_id?: string
   id: number
   timestamp: string
   level: 'info' | 'warning' | 'error' | 'success' | 'debug'

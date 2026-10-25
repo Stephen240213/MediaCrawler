@@ -19,6 +19,7 @@ export function useLogWebSocket() {
   useEffect(() => {
     connectionCount++
 
+    let attempts = 0
     const connect = () => {
       if (globalReconnectTimer) {
         clearTimeout(globalReconnectTimer)
@@ -39,6 +40,7 @@ export function useLogWebSocket() {
 
       ws.onopen = () => {
         if (globalWs !== ws) return
+        attempts = 0
         console.log('WebSocket connected')
       }
 
@@ -62,13 +64,16 @@ export function useLogWebSocket() {
         }
       }
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (globalWs !== ws) return
+        if (event.code === 4401 || event.code === 4403) {
+          window.dispatchEvent(new Event('mc-session-expired')); globalWs = null; return
+        }
         console.log('WebSocket disconnected')
         globalWs = null
         // 只在还有使用者时才重连
         if (connectionCount > 0) {
-          globalReconnectTimer = setTimeout(connect, 2000)
+          globalReconnectTimer = setTimeout(connect, Math.min(30000, 1000 * 2 ** Math.min(attempts++, 5)) + Math.random() * 500)
         }
       }
 
