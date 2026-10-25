@@ -1,4 +1,4 @@
-"""One owned Workbench + Quick Tunnel pair, launched by the macOS user agent.
+"""Independent Workbench and Tunnel supervisors, each owned by its macOS agent.
 
 No browser login or collection is initiated by this supervisor. Credentials stay
 in the private environment file and Wrangler's own local credential storage.
@@ -48,13 +48,21 @@ class DesktopSettings:
     def local_origin(self):
         return f'http://127.0.0.1:{self.local_port}'
 
-    def validate(self):
+    @property
+    def tunnel_state_file(self):
+        return self.runtime / 'desktop' / 'tunnel-status.json'
+
+    def validate(self, component='tunnel'):
         if not self.env_file.is_file():
             raise ValueError('Remote configuration is missing. Complete remote.env setup first.')
         if not (self.root / 'api/webui/index.html').is_file():
             raise ValueError('WebUI build is missing. Run npm --prefix webui run build first.')
         if self.local_port == self.remote_port or any(not 1024 <= p <= 65535 for p in (self.local_port, self.remote_port)):
             raise ValueError('Use two different ports between 1024 and 65535.')
+        if component == 'workbench':
+            if not Path(self.python).is_file() or not os.access(self.python, os.X_OK):
+                raise ValueError('Python executable is missing.')
+            return
         url = urlsplit(self.public_origin)
         if url.scheme != 'https' or not url.hostname or url.username or url.password or url.port or url.path or url.query or url.fragment:
             raise ValueError('Use the HTTPS Worker origin without a path or trailing slash.')
@@ -119,6 +127,12 @@ def http_status(url, host=None):
 
 
 class DesktopSupervisor:
+    component = 'workbench'
+
+    @property
+    def state_file(self):
+        return self.settings.state_file
+
     def __init__(self, settings, *, probe=http_status, port_check=occupied, popen=subprocess.Popen):
         self.settings = settings
         self.probe = probe
@@ -136,7 +150,7 @@ class DesktopSupervisor:
         self.handler = None
 
     def state(self, state, message):
-        atomic_json(self.settings.state_file, dict(state=state, message=message,
+        atomic_json(self.state_file, dict(state=state, message=message,
             supervisor_pid=os.getpid(), local_url=self.settings.local_origin,
             public_url=self.settings.public_origin, tunnel_url=self.tunnel_url,
             updated_at=time.time()))
@@ -180,42 +194,17 @@ class DesktopSupervisor:
         raise RuntimeError(message)
 
     def start_services(self):
-        self.settings.validate()
+        self.settings.validate('workbench')
         for port in (self.settings.local_port, self.settings.remote_port):
             if self.port_check(port):
                 raise RuntimeError(f'Port {port} is already in use. Stop the manually started Workbench first.')
         self.state('starting', 'Starting Workbench.')
-        self.spawn('Workbench', [self.settings.python, '-m', 'api.serve', '--env-file', str(self.settings.env_file),
+        self.spawn('Workbench', [self.settings.python, '-E', '-m', 'api.serve', '--env-file', str(self.settings.env_file),
                    '--local-port', str(self.settings.local_port), '--remote-port', str(self.settings.remote_port)])
         self.wait_until(lambda: self.probe(self.settings.local_origin + '/api/health') == 200 and
                         self.probe(f'http://127.0.0.1:{self.settings.remote_port}/api/health', urlsplit(self.settings.public_origin).netloc) == 401,
                         45, 'Workbench readiness check failed.')
-        self.state('starting', 'Connecting Quick Tunnel.')
-        self.spawn('Tunnel', [self.settings.cloudflared, 'tunnel', '--url', f'http://127.0.0.1:{self.settings.remote_port}',
-                   '--http-host-header', urlsplit(self.settings.public_origin).netloc], tunnel=True)
-        self.wait_until(lambda: bool(self.tunnel_url) and self.connected.is_set(), 90, 'Tunnel did not connect in time.')
-        self.state('starting', 'Checking protected Tunnel origin.')
-        self.wait_until(lambda: self.probe(self.tunnel_url + '/api/health') == 401, 45, 'Tunnel origin is not reachable or is not protected.')
-        self.state('starting', 'Updating Worker upstream. Cloudflare CLI login must already be complete.')
-        update = self.spawn('Worker Update', [self.settings.npx, '--yes', WRANGLER, 'deploy', '--keep-vars',
-            '--var', f'PUBLIC_ORIGIN:{self.settings.public_origin}', '--var', f'UPSTREAM_ORIGIN:{self.tunnel_url}'],
-            cwd=self.settings.root / 'deploy/remote/worker')
-        # This child is expected to exit. Other children must remain alive.
-        self.children.remove(('Worker Update', update))
-        try:
-            deadline = time.monotonic() + 120
-            while update.poll() is None:
-                if self.stop_event.wait(.2):
-                    raise InterruptedError('Startup cancelled.')
-                if any(p.poll() is not None for _, p in self.children):
-                    raise RuntimeError('Workbench or Tunnel exited during Worker update.')
-                if time.monotonic() >= deadline:
-                    raise RuntimeError('Worker update timed out. Check the connection and run Wrangler login in Terminal.')
-            if update.returncode != 0:
-                raise RuntimeError('Worker update failed. Run npx wrangler@4.152.0 login in Terminal, then retry. See the desktop log.')
-        finally:
-            self.terminate(update, graceful=False)
-        self.state('ready', 'Workbench and Tunnel are running. Worker upstream updated. Sign in through the browser for remote access.')
+        self.state('ready', 'Workbench is running. Tunnel is controlled separately with MediaCrawler Tunnel Start.')
 
     def terminate(self, process, graceful=True):
         if process.poll() is not None:
@@ -251,19 +240,19 @@ class DesktopSupervisor:
             thread.join(timeout=2)
 
     def run(self):
-        directory = self.settings.state_file.parent
+        directory = self.state_file.parent
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         # Acquire before touching status: a duplicate process must not overwrite
         # the running instance's status file or stop its children.
-        with Lease(directory / 'supervisor.lock'):
-            self.handler = RotatingFileHandler(directory / 'desktop.log', maxBytes=2*1024*1024, backupCount=2, encoding='utf-8')
+        with Lease(directory / ('tunnel.lock' if self.component == 'tunnel' else 'supervisor.lock')):
+            self.handler = RotatingFileHandler(directory / ('tunnel.log' if self.component == 'tunnel' else 'desktop.log'), maxBytes=2*1024*1024, backupCount=2, encoding='utf-8')
             self.handler.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
             self.logger.addHandler(self.handler)
             try:
                 self.start_services()
                 while not self.stop_event.wait(1):
                     if any(p.poll() is not None for _, p in self.children):
-                        raise RuntimeError('A managed service exited. Both services have been stopped; use MediaCrawler Start to retry.')
+                        raise RuntimeError(f'The managed {self.component} service exited. The other component was not stopped.')
             except InterruptedError:
                 pass
             except Exception as error:
@@ -271,7 +260,54 @@ class DesktopSupervisor:
                 self.logger.error('Supervisor: %s', redact(error))
             finally:
                 self.shutdown()
-                self.state('error' if self.failure else 'stopped', self.failure or 'Workbench and Tunnel stopped.')
+                self.state('error' if self.failure else 'stopped', self.failure or f'{self.component.title()} stopped. The other component was not stopped.')
                 self.logger.removeHandler(self.handler)
                 self.handler.close()
         return 1 if self.failure else 0
+
+
+class TunnelSupervisor(DesktopSupervisor):
+    component = 'tunnel'
+
+    @property
+    def state_file(self):
+        return self.settings.tunnel_state_file
+
+    def start_services(self):
+        self.settings.validate('tunnel')
+        if self.probe(f'http://127.0.0.1:{self.settings.remote_port}/api/health', urlsplit(self.settings.public_origin).netloc) != 401:
+            raise RuntimeError('Protected Workbench is not ready. Open MediaCrawler Start first. No Workbench process was started or stopped.')
+        self.state('starting', 'Connecting Quick Tunnel.')
+        self.spawn('Tunnel', [self.settings.cloudflared, 'tunnel', '--url', f'http://127.0.0.1:{self.settings.remote_port}',
+                   '--http-host-header', urlsplit(self.settings.public_origin).netloc], tunnel=True)
+        self.wait_until(lambda: bool(self.tunnel_url) and self.connected.is_set(), 90, 'Tunnel did not connect in time.')
+        self.state('starting', 'Checking protected Tunnel origin.')
+        last = object()
+        def protected():
+            nonlocal last
+            value = self.probe(self.tunnel_url + '/api/health')
+            if value != last:
+                self.logger.info('Tunnel origin check: %s', f'HTTP {value}' if value else 'network/DNS/TLS unavailable')
+                last = value
+            return value == 401
+        self.wait_until(protected, 90, 'Tunnel check failed: expected HTTP 401 from the protected origin. Check tunnel.log for network/status details. Workbench was not stopped.')
+        self.state('starting', 'Updating Worker upstream. Cloudflare CLI login must already be complete.')
+        update = self.spawn('Worker Update', [self.settings.npx, '--yes', WRANGLER, 'deploy', '--keep-vars',
+            '--var', f'PUBLIC_ORIGIN:{self.settings.public_origin}', '--var', f'UPSTREAM_ORIGIN:{self.tunnel_url}'],
+            cwd=self.settings.root / 'deploy/remote/worker')
+        # This child is expected to exit. Other children must remain alive.
+        self.children.remove(('Worker Update', update))
+        try:
+            deadline = time.monotonic() + 120
+            while update.poll() is None:
+                if self.stop_event.wait(.2):
+                    raise InterruptedError('Startup cancelled.')
+                if any(p.poll() is not None for _, p in self.children):
+                    raise RuntimeError('Tunnel exited during Worker update. Workbench was not stopped.')
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('Worker update timed out. Check the connection and run Wrangler login in Terminal.')
+            if update.returncode != 0:
+                raise RuntimeError('Worker update failed. Run npx wrangler@4.152.0 login in Terminal, then retry. See the desktop log.')
+        finally:
+            self.terminate(update, graceful=False)
+        self.state('ready', 'Tunnel is connected. Worker upstream updated. Workbench is managed separately; sign in through the browser for remote access.')

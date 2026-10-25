@@ -10,7 +10,7 @@ fi
 install_result=0
 .venv/bin/python -m api.desktop install || install_result=$?
 if [[ "$install_result" -eq 0 ]]; then
-  echo 'Install complete. Open MediaCrawler Start in Applications/MediaCrawler.'
+  echo 'Install complete. Use MediaCrawler Start for Workbench; MediaCrawler Tunnel Start is separate.'
 else
   echo 'Install failed. Keep the error output for troubleshooting.'
 fi

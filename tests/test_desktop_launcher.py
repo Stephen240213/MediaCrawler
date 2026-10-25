@@ -17,7 +17,7 @@ import time
 import pytest
 
 from api import desktop
-from api.services.desktop_supervisor import DesktopSettings, DesktopSupervisor, atomic_json
+from api.services.desktop_supervisor import DesktopSettings, DesktopSupervisor, TunnelSupervisor, atomic_json
 
 
 @pytest.fixture
@@ -149,16 +149,16 @@ def probe(url,host=None):
 
 def test_supervisor_readiness_fixed_commands_and_automatic_upstream(settings):
     calls=[]
-    supervisor=DesktopSupervisor(settings,probe=probe,port_check=lambda _:False,popen=factory(calls))
+    supervisor=TunnelSupervisor(settings,probe=probe,port_check=lambda _:False,popen=factory(calls))
     supervisor.start_services()
-    state=json.loads(settings.state_file.read_text())
+    state=json.loads(settings.tunnel_state_file.read_text())
     assert state['state']=='ready'
-    assert len(calls)==3
-    assert '--local-port' in calls[0][0] and '8090' in calls[0][0]
-    assert 'http://127.0.0.1:8081' in calls[1][0]
-    assert 'workbench.example.workers.dev' in calls[1][0]
-    assert 'UPSTREAM_ORIGIN:https://fixture-tunnel.trycloudflare.com' in calls[2][0]
-    assert '--keep-vars' in calls[2][0]
+    assert len(calls)==2
+    assert 'http://127.0.0.1:8081' in calls[0][0]
+    assert 'workbench.example.workers.dev' in calls[0][0]
+    assert 'UPSTREAM_ORIGIN:https://fixture-tunnel.trycloudflare.com' in calls[1][0]
+    assert '--keep-vars' in calls[1][0]
+    assert not any('api.serve' in command for command,_ in calls)
     assert all(options.get('shell') is not True for _,options in calls)
     supervisor.shutdown()
     assert all(p.poll() is not None for _,p in supervisor.children)
@@ -174,10 +174,10 @@ def test_conflict_does_not_stop_manual_service(settings):
 
 def test_worker_update_failure_stops_only_created_services(settings):
     calls=[]
-    supervisor=DesktopSupervisor(settings,probe=probe,port_check=lambda _:False,popen=factory(calls,update_code=1))
+    supervisor=TunnelSupervisor(settings,probe=probe,port_check=lambda _:False,popen=factory(calls,update_code=1))
     assert supervisor.run()==1
     assert all(p.poll() is not None for _,p in supervisor.children)
-    assert json.loads(settings.state_file.read_text())['state']=='error'
+    assert json.loads(settings.tunnel_state_file.read_text())['state']=='error'
 
 
 def test_protection_check_must_be_401(settings):
@@ -252,20 +252,20 @@ def test_real_child_shutdown_and_signal_ownership(settings,tmp_path):
 
 def test_cancel_during_worker_update_cleans_every_owned_process(settings):
     calls=[]
-    supervisor=DesktopSupervisor(settings,probe=probe,port_check=lambda _:False,popen=factory(calls,update_code=None))
+    supervisor=TunnelSupervisor(settings,probe=probe,port_check=lambda _:False,popen=factory(calls,update_code=None))
     original=supervisor.state
     def state(value,message):
         original(value,message)
         if message.startswith('Updating Worker'):supervisor.stop_event.set()
     supervisor.state=state
     assert supervisor.run()==0
-    assert len(calls)==3
+    assert len(calls)==2
     assert all(process.poll() is not None for process in FakeProcess.registry.values())
-    assert json.loads(settings.state_file.read_text())['state']=='stopped'
+    assert json.loads(settings.tunnel_state_file.read_text())['state']=='stopped'
 
 
-def test_real_workbench_paired_lifecycle(settings,tmp_path):
-    """Actual managed API, stub Tunnel/Worker; no cloud account or collection."""
+def test_real_workbench_independent_lifecycle(settings,tmp_path):
+    """Actual managed API starts without a Tunnel or Cloudflare call."""
     from dataclasses import replace
     import socket
     from api.services.desktop_supervisor import http_status
@@ -285,6 +285,8 @@ def test_real_workbench_paired_lifecycle(settings,tmp_path):
             command=[sys.executable,'-u','-c',f'from pathlib import Path;Path({str(record)!r}).write_text({json.dumps(command)!r})']
         environment=options['env'].copy();environment['PYTHONPATH']=str(Path(__file__).resolve().parents[1])
         options['env']=environment
+        if 'api.serve' in command:
+            options['cwd']=str(Path(__file__).resolve().parents[1])
         return subprocess.Popen(command,**options)
     def readiness(url,host=None):
         if url.startswith('https://fixture-tunnel.trycloudflare.com'):
@@ -302,7 +304,8 @@ def test_real_workbench_paired_lifecycle(settings,tmp_path):
         assert state['state']=='ready',state
         assert http_status(settings.local_origin+'/api/health')==200
         assert http_status(f'http://127.0.0.1:{second}/api/health','workbench.example.workers.dev')==401
-        assert 'UPSTREAM_ORIGIN:https://fixture-tunnel.trycloudflare.com' in json.loads(record.read_text())
+        assert not record.exists()
+        assert len(supervisor.children)==1 and supervisor.children[0][0]=='Workbench'
         assert not (tmp_path/'collection.db').exists()
     finally:
         supervisor.stop_event.set();thread.join(timeout=45)
@@ -365,3 +368,109 @@ def test_diagnostics_do_not_dump_private_environment(settings,monkeypatch,tmp_pa
     assert 'session=secret' not in output
     assert 'fixture-audience' not in output
     assert 'owner@example.test' not in output
+
+
+def test_workbench_start_never_probes_cloudflare(settings):
+    calls=[];urls=[]
+    def offline_probe(url,host=None):
+        urls.append(url)
+        assert url.startswith('http://127.0.0.1:')
+        return probe(url,host)
+    supervisor=DesktopSupervisor(settings,probe=offline_probe,port_check=lambda _:False,popen=factory(calls))
+    supervisor.start_services()
+    assert len(calls)==1 and 'api.serve' in calls[0][0]
+    assert json.loads(settings.state_file.read_text())['state']=='ready'
+    assert not settings.tunnel_state_file.exists()
+    supervisor.shutdown()
+
+
+def test_tunnel_failure_preserves_workbench(settings):
+    wb_calls=[];tunnel_calls=[]
+    workbench=DesktopSupervisor(settings,probe=probe,port_check=lambda _:False,popen=factory(wb_calls))
+    workbench.start_services()
+    def unreachable(url,host=None):
+        return None if url.startswith('https://') else probe(url,host)
+    tunnel=TunnelSupervisor(settings,probe=unreachable,port_check=lambda _:False,popen=factory(tunnel_calls))
+    original_wait=tunnel.wait_until
+    tunnel.wait_until=lambda condition,timeout,message:original_wait(condition,min(timeout,.3),message)
+    try:
+        assert tunnel.run()==1
+        assert all(child.poll() is None for _,child in workbench.children)
+        assert json.loads(settings.state_file.read_text())['state']=='ready'
+        assert json.loads(settings.tunnel_state_file.read_text())['state']=='error'
+        assert 'network/DNS/TLS unavailable' in (settings.state_file.parent/'tunnel.log').read_text()
+        assert len(tunnel_calls)==1 and 'tunnel' in tunnel_calls[0][0]
+    finally:
+        workbench.shutdown()
+
+
+def test_tunnel_requires_existing_protected_workbench(settings):
+    calls=[]
+    tunnel=TunnelSupervisor(settings,probe=lambda *_:None,popen=factory(calls))
+    assert tunnel.run()==1
+    assert not calls
+    assert 'Open MediaCrawler Start first' in json.loads(settings.tunnel_state_file.read_text())['message']
+
+
+def test_tunnel_stop_uses_only_its_agent(settings,monkeypatch):
+    pids=iter([999,None]);components=[]
+    def pid(component='workbench'):
+        components.append(component);return next(pids)
+    monkeypatch.setattr(desktop,'agent_pid',pid)
+    calls=[]
+    def ctl(*args):
+        calls.append(args);return subprocess.CompletedProcess(args,0,'','')
+    monkeypatch.setattr(desktop,'launchctl',ctl)
+    assert 'Tunnel stopped' in desktop.stop(settings,'tunnel')
+    assert components==['tunnel','tunnel']
+    assert calls==[('kill','SIGTERM',desktop.target('tunnel'))]
+    assert desktop.target('tunnel')!=desktop.target()
+
+
+def test_installer_creates_two_independent_agents(settings,tmp_path):
+    apps=tmp_path/'Apps';agents=tmp_path/'Agents'
+    desktop.install(settings,apps,agents,compile_app=compiler,sign_app=lambda _:None,register=False,reveal=False)
+    with (agents/(desktop.LABEL+'.plist')).open('rb') as file:workbench=plistlib.load(file)
+    with (agents/(desktop.TUNNEL_LABEL+'.plist')).open('rb') as file:tunnel=plistlib.load(file)
+    assert 'supervise' in workbench['ProgramArguments']
+    assert 'tunnel-supervise' in tunnel['ProgramArguments']
+    assert workbench['Label']!=tunnel['Label']
+    assert workbench['StandardErrorPath']!=tunnel['StandardErrorPath']
+    assert len(list(apps.glob('*.app')))==6
+
+
+def test_foreign_tunnel_agent_is_preserved(settings,tmp_path):
+    agents=tmp_path/'Agents';agents.mkdir()
+    path=agents/(desktop.TUNNEL_LABEL+'.plist')
+    with path.open('wb') as file:plistlib.dump({'Label':desktop.TUNNEL_LABEL,'ProgramArguments':['foreign']},file)
+    before=path.read_bytes()
+    with pytest.raises(ValueError):
+        desktop.install(settings,tmp_path/'Apps',agents,compile_app=compiler,sign_app=lambda _:None,register=False,reveal=False)
+    assert path.read_bytes()==before
+
+
+def test_stale_status_does_not_report_old_ready_message(settings,monkeypatch):
+    atomic_json(settings.state_file,{'state':'ready','message':'Workbench and Tunnel are running','supervisor_pid':123})
+    monkeypatch.setattr(desktop,'agent_pid',lambda:None)
+    output=desktop.status(settings)
+    assert 'State: stopped' in output and 'Workbench and Tunnel are running' not in output
+
+
+def test_workbench_does_not_require_tunnel_executables(settings):
+    from dataclasses import replace
+    settings=replace(settings,cloudflared='/missing/cloudflared',npx='/missing/npx')
+    calls=[]
+    supervisor=DesktopSupervisor(settings,probe=probe,port_check=lambda _:False,popen=factory(calls))
+    supervisor.start_services()
+    assert len(calls)==1
+    supervisor.shutdown()
+
+
+def test_tunnel_start_is_idempotent_and_opens_only_remote(settings,monkeypatch):
+    atomic_json(settings.tunnel_state_file,{'state':'ready','supervisor_pid':456})
+    monkeypatch.setattr(desktop,'agent_pid',lambda component='workbench':456 if component=='tunnel' else pytest.fail('must not control Workbench'))
+    monkeypatch.setattr(desktop,'http_status',lambda url,*args:401 if ':8081/' in url else 200)
+    monkeypatch.setattr(desktop,'launchctl',lambda *_:pytest.fail('must not restart running Tunnel'))
+    opened=[];monkeypatch.setattr(desktop.subprocess,'run',lambda args,**_:opened.append(args))
+    assert 'Tunnel is running' in desktop.start(settings,component='tunnel')
+    assert opened==[['/usr/bin/open',settings.public_origin]]

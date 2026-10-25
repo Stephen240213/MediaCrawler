@@ -5,6 +5,7 @@ import encodings
 import platform
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 import plistlib
 import re
 import shlex
@@ -16,11 +17,13 @@ import tempfile
 import time
 
 from dotenv import dotenv_values
-from api.services.desktop_supervisor import DesktopSettings, DesktopSupervisor, atomic_json, http_status
+from api.services.desktop_supervisor import DesktopSettings, DesktopSupervisor, TunnelSupervisor, atomic_json, http_status
 from api.services.redaction import redact
 
 LABEL = 'com.mediacrawler.desktop'
-APP_NAMES = {'start': 'MediaCrawler Start', 'stop': 'MediaCrawler Stop', 'status': 'MediaCrawler Status'}
+TUNNEL_LABEL = 'com.mediacrawler.tunnel'
+APP_NAMES = {'start': 'MediaCrawler Start', 'stop': 'MediaCrawler Stop', 'status': 'MediaCrawler Status',
+             'tunnel-start': 'MediaCrawler Tunnel Start', 'tunnel-stop': 'MediaCrawler Tunnel Stop', 'tunnel-status': 'MediaCrawler Tunnel Status'}
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -58,12 +61,15 @@ def settings_for_install(env_file, local_port, remote_port):
     return settings
 
 
-def agent_definition(settings, settings_file):
+def agent_definition(settings, settings_file, component='workbench'):
     directory = settings.state_file.parent
-    return {'Label': LABEL, 'ProgramArguments': [settings.python, '-E', '-m', 'api.desktop', 'supervise', '--settings', str(settings_file)],
+    label = TUNNEL_LABEL if component == 'tunnel' else LABEL
+    action = 'tunnel-supervise' if component == 'tunnel' else 'supervise'
+    prefix = 'tunnel-agent' if component == 'tunnel' else 'agent'
+    return {'Label': label, 'ProgramArguments': [settings.python, '-E', '-m', 'api.desktop', action, '--settings', str(settings_file)],
             'WorkingDirectory': str(settings.root), 'RunAtLoad': False, 'KeepAlive': False,
             'ProcessType': 'Interactive', 'ExitTimeOut': 45, 'ThrottleInterval': 5, 'Umask': 0o077,
-            'StandardOutPath': str(directory/'agent.stdout.log'), 'StandardErrorPath': str(directory/'agent.stderr.log'),
+            'StandardOutPath': str(directory/(prefix+'.stdout.log')), 'StandardErrorPath': str(directory/(prefix+'.stderr.log')),
             'EnvironmentVariables': {'PATH': settings.tool_path, 'UV_FROZEN': '1'}}
 
 
@@ -95,8 +101,8 @@ def application_script(action, python, settings_file, root=None):
                 + ' && uv run --frozen python -m api.desktop diagnose --settings '
                 + shlex.quote(str(settings_file)))
     present = (f'display dialog resultText buttons {{"Close"}} default button "Close" cancel button "Close" with title {title} giving up after 60'
-               if action == 'status' else f'display notification resultText with title {title}')
-    message = json.dumps('MediaCrawler could not run. The full error was saved to the control log. Choose Diagnostics to check Python in Terminal. This dialog closes automatically after 45 seconds.')
+               if action.endswith('status') else f'display notification resultText with title {title}')
+    message = json.dumps('MediaCrawler could not run. The full error was saved to the control log. Choose Open Log for the startup error or Diagnostics for troubleshooting. This dialog closes automatically after 45 seconds.')
     open_log = json.dumps(shlex.join(['/usr/bin/open', '-t', str(log_file)]), ensure_ascii=False)
     return f'''on run
     try
@@ -126,43 +132,47 @@ end run
 '''
 
 
-def target():
-    return f'gui/{os.getuid()}/{LABEL}'
+def target(component='workbench'):
+    label = TUNNEL_LABEL if component == 'tunnel' else LABEL
+    return f'gui/{os.getuid()}/{label}'
 
 
 def launchctl(*args, check=False):
     return subprocess.run(['/bin/launchctl', *args], capture_output=True, text=True, check=check)
 
 
-def agent_pid():
-    result = launchctl('print', target())
+def agent_pid(component='workbench'):
+    result = launchctl('print', target(component))
     if result.returncode:
         return None
     match = re.search(r'^\s*pid = (\d+)\s*$', result.stdout, re.MULTILINE)
     return int(match[1]) if match else None
 
 
-def read_state(settings):
+def read_state(settings, component='workbench'):
     try:
-        return json.loads(settings.state_file.read_text())
+        return json.loads((settings.tunnel_state_file if component == 'tunnel' else settings.state_file).read_text())
     except (OSError, ValueError):
         return {'state': 'stopped', 'message': 'No launcher status is available yet.'}
 
 
-def start(settings, timeout=300):
+def start(settings, timeout=360, component='workbench'):
+    if component == 'tunnel' and http_status(f'http://127.0.0.1:{settings.remote_port}/api/health', urlsplit(settings.public_origin).netloc) != 401:
+        raise RuntimeError('Protected Workbench is not ready. Open MediaCrawler Start first; Tunnel did not change Workbench.')
     requested_at = time.time()
-    pid = agent_pid()
+    pid = agent_pid() if component == 'workbench' else agent_pid('tunnel')
     if not pid:
-        result = launchctl('kickstart', target())  # Never use -k to kill a running job.
+        result = launchctl('kickstart', target(component))  # Never use -k to kill a running job.
         if result.returncode:
             raise RuntimeError('Launcher is not registered. Run python -m api.desktop install again.')
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        pid = agent_pid()
-        state = read_state(settings)
+        pid = agent_pid() if component == 'workbench' else agent_pid('tunnel')
+        state = read_state(settings, component)
         if pid and state.get('supervisor_pid') == pid and state.get('state') == 'ready' and http_status(settings.local_origin+'/api/health') == 200:
-            subprocess.run(['/usr/bin/open', settings.local_origin], check=True)
-            return 'Workbench and Tunnel are running. The local Workbench is open.'
+            address = settings.public_origin if component == 'tunnel' else settings.local_origin
+            subprocess.run(['/usr/bin/open', address], check=True)
+            return ('Tunnel is running. Sign in at the remote Workbench.' if component == 'tunnel' else 'Workbench is running. Tunnel is controlled separately.')
         fresh = (pid is not None and state.get('supervisor_pid') == pid) or state.get('updated_at', 0) >= requested_at
         if state.get('state') == 'error' and fresh:
             raise RuntimeError(state.get('message', 'Startup failed.'))
@@ -173,28 +183,30 @@ def start(settings, timeout=300):
     raise RuntimeError('Startup is still in progress. Open MediaCrawler Status for details; click Stop to cancel.')
 
 
-def stop(settings):
-    if not agent_pid():
-        return 'Workbench and Tunnel are already stopped.'
-    result = launchctl('kill', 'SIGTERM', target())
+def stop(settings, component='workbench'):
+    name = 'Tunnel' if component == 'tunnel' else 'Workbench'
+    if not (agent_pid() if component == 'workbench' else agent_pid('tunnel')):
+        return f'{name} is already stopped.'
+    result = launchctl('kill', 'SIGTERM', target(component))
     if result.returncode:
         raise RuntimeError('Unable to stop the managed launcher. Check Desktop Status.')
     deadline = time.monotonic()+55
     while time.monotonic()<deadline:
-        if not agent_pid():
-            return 'Workbench and Tunnel stopped. Saved data was preserved.'
+        if not (agent_pid() if component == 'workbench' else agent_pid('tunnel')):
+            return f'{name} stopped. The other component and saved data were preserved.'
         time.sleep(.5)
     raise RuntimeError('Shutdown is taking longer than expected. Check Desktop Status; no unrelated process was stopped.')
 
 
-def status(settings):
-    state = read_state(settings)
-    running = agent_pid()
+def status(settings, component='workbench'):
+    state = read_state(settings, component)
+    running = agent_pid() if component == 'workbench' else agent_pid('tunnel')
     active = state.get('supervisor_pid') == running and running is not None
     current = state.get('state', 'unknown') if active else ('error' if state.get('state') == 'error' else 'stopped')
-    return '\n'.join([f'State: {current}', str(state.get('message', '')), f'Local: {settings.local_origin}',
+    message = str(state.get('message', '')) if active or current == 'error' else 'No active managed process. Previous status is historical.'
+    return '\n'.join([f'State: {current}', message, f'Local: {settings.local_origin}',
                       f'Remote: {settings.public_origin}', f'Logs: {settings.state_file.parent}',
-                      'Remote access requires browser sign-in. The Mac must remain awake and signed in.'])
+                      'Workbench and Tunnel have separate Start / Stop / Status apps.'])
 
 
 def diagnose(settings):
@@ -205,13 +217,15 @@ def diagnose(settings):
              f'Project inside Documents: {settings.root.is_relative_to(Path.home()/"Documents")}',
              f'Finder control log: {control_log("start")}',
              'Note: a successful Terminal check does not establish Finder/LaunchAgent folder access.']
-    for name, path in [('Finder Start', control_log('start')), ('Finder Status', control_log('status')), ('Finder Stop', control_log('stop')), ('Agent stderr', settings.state_file.parent/'agent.stderr.log')]:
+    if sys.platform == 'darwin':
+        lines.extend(['Current Workbench status:', status(settings), 'Current Tunnel status:', status(settings, 'tunnel')])
+    for name, path in [('Finder Start', control_log('start')), ('Finder Status', control_log('status')), ('Finder Stop', control_log('stop')), ('Tunnel Start', control_log('tunnel-start')), ('Tunnel Status', control_log('tunnel-status')), ('Agent stderr', settings.state_file.parent/'agent.stderr.log'), ('Tunnel Agent stderr', settings.state_file.parent/'tunnel-agent.stderr.log'), ('Tunnel supervisor', settings.state_file.parent/'tunnel.log')]:
         if path.is_file():
             with path.open('rb') as file:
                 file.seek(0, os.SEEK_END)
                 file.seek(max(0, file.tell()-6000))
                 tail = file.read().decode('utf-8', errors='replace')
-            lines.extend([f'{name} recent output:', redact(tail)[-1800:]])
+            lines.extend([f'{name} historical output (file timestamp {time.ctime(path.stat().st_mtime)}):', redact(tail)[-1800:]])
     return '\n'.join(lines)
 
 
@@ -228,16 +242,20 @@ def install(settings, applications=None, agents=None, *, compile_app=None, sign_
                 raise ValueError()
         except (OSError, ValueError):
             raise ValueError('Applications folder is not owned by this installer; existing files were preserved.') from None
-    if agent_file.exists():
-        with agent_file.open('rb') as file:
-            old = plistlib.load(file)
-        arguments = old.get('ProgramArguments', [])
-        owned = (arguments[:4] == [settings.python, '-m', 'api.desktop', 'supervise'] or
-                 arguments[:5] == [settings.python, '-E', '-m', 'api.desktop', 'supervise'])
-        if old.get('Label') != LABEL or not owned:
-            raise ValueError('A different LaunchAgent already uses this name; it was preserved.')
-    if register and agent_pid():
-        raise RuntimeError('Stop MediaCrawler with MediaCrawler Stop before updating its launchers.')
+    agent_files = {'workbench': agent_file, 'tunnel': agents/f'{TUNNEL_LABEL}.plist'}
+    for component, path in agent_files.items():
+        if path.exists():
+            with path.open('rb') as file:
+                old = plistlib.load(file)
+            arguments = old.get('ProgramArguments', [])
+            action = 'tunnel-supervise' if component == 'tunnel' else 'supervise'
+            owned = (arguments[:4] == [settings.python, '-m', 'api.desktop', action] or
+                     arguments[:5] == [settings.python, '-E', '-m', 'api.desktop', action])
+            expected_label = TUNNEL_LABEL if component == 'tunnel' else LABEL
+            if old.get('Label') != expected_label or not owned:
+                raise ValueError('A different LaunchAgent already uses this name; it was preserved.')
+        if register and (agent_pid() if component == 'workbench' else agent_pid('tunnel')):
+            raise RuntimeError('Stop both Workbench and Tunnel before updating their launchers.')
     applications.mkdir(parents=True, exist_ok=True, mode=0o700)
     agents.mkdir(parents=True, exist_ok=True)
     settings.state_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -270,7 +288,8 @@ def install(settings, applications=None, agents=None, *, compile_app=None, sign_
                 plistlib.dump(info, file)
             sign_app(destination)
         if register:
-            launchctl('bootout', target())  # Unload only our stopped, validated agent.
+            for component in agent_files:
+                launchctl('bootout', target(component))  # Only stopped, validated agents.
         backup = applications/'.backups'/str(time.time_ns())
         backup.mkdir(parents=True, mode=0o700)
         for name in APP_NAMES.values():
@@ -278,19 +297,22 @@ def install(settings, applications=None, agents=None, *, compile_app=None, sign_
             if existing.exists():
                 existing.rename(backup/existing.name)
             (built/f'{name}.app').rename(existing)
-        if agent_file.exists():
-            shutil.copy2(agent_file, backup/agent_file.name)
+        for path in agent_files.values():
+            if path.exists():
+                shutil.copy2(path, backup/path.name)
         if settings_file.exists():
             shutil.copy2(settings_file, backup/'settings.json')
         settings.save(settings_file)
-        with agent_file.open('wb') as file:
-            plistlib.dump(agent_definition(settings, settings_file), file)
-        agent_file.chmod(0o600)
-        atomic_json(marker, {'project_root': str(settings.root), 'schema': 1})
+        for component, path in agent_files.items():
+            with path.open('wb') as file:
+                plistlib.dump(agent_definition(settings, settings_file, component), file)
+            path.chmod(0o600)
+        atomic_json(marker, {'project_root': str(settings.root), 'schema': 2})
         if register:
-            result = launchctl('bootstrap', f'gui/{os.getuid()}', str(agent_file))
-            if result.returncode:
-                raise RuntimeError('LaunchAgent registration failed. Compiled applications were preserved; check macOS Background Items permissions.')
+            for path in agent_files.values():
+                result = launchctl('bootstrap', f'gui/{os.getuid()}', str(path))
+                if result.returncode:
+                    raise RuntimeError('LaunchAgent registration failed. Compiled apps were preserved; check macOS Background Items permissions.')
     if reveal:
         subprocess.run(['/usr/bin/open', str(applications)], check=True)
     return applications
@@ -298,7 +320,7 @@ def install(settings, applications=None, agents=None, *, compile_app=None, sign_
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['install', 'start', 'stop', 'status', 'supervise', 'diagnose'])
+    parser.add_argument('action', choices=['install', 'start', 'stop', 'status', 'supervise', 'diagnose', 'tunnel-start', 'tunnel-stop', 'tunnel-status', 'tunnel-supervise'])
     parser.add_argument('--settings', type=Path, default=ROOT/'.runtime/desktop/settings.json')
     parser.add_argument('--env-file', type=Path, default=Path.home()/'.config/mediacrawler/remote.env')
     parser.add_argument('--local-port', type=int, default=8090)
@@ -311,20 +333,22 @@ def main():
                 raise RuntimeError('Install this launcher on the collection Mac, not in the cloud workspace.')
             settings = settings_for_install(args.env_file, args.local_port, args.remote_port)
             folder = install(settings)
-            print(f'Installed MediaCrawler Start, MediaCrawler Stop and MediaCrawler Status in {folder}.')
+            print(f'Installed separate Workbench and Tunnel Start / Stop / Status apps in {folder}.')
             return
         settings = DesktopSettings.load(args.settings)
         if args.action == 'diagnose':
             print(diagnose(settings))
             return
-        if args.action == 'supervise':
-            supervisor = DesktopSupervisor(settings)
+        if args.action in ('supervise', 'tunnel-supervise'):
+            supervisor = (TunnelSupervisor if args.action == 'tunnel-supervise' else DesktopSupervisor)(settings)
             signal.signal(signal.SIGTERM, lambda *_: supervisor.stop_event.set())
             signal.signal(signal.SIGINT, lambda *_: supervisor.stop_event.set())
             raise SystemExit(supervisor.run())
         if sys.platform != 'darwin':
             raise RuntimeError('LaunchAgent controls are available only on the collection Mac.')
-        print({'start': start, 'stop': stop, 'status': status}[args.action](settings))
+        component = 'tunnel' if args.action.startswith('tunnel-') else 'workbench'
+        action = args.action.removeprefix('tunnel-')
+        print({'start': start, 'stop': stop, 'status': status}[action](settings, component=component))
     except (OSError, ValueError, RuntimeError, TypeError, KeyError, subprocess.SubprocessError) as error:
         print(str(error), file=sys.stderr)
         raise SystemExit(1)
