@@ -47,12 +47,13 @@ uvicorn.run(app,host='127.0.0.1',port=port,log_level='warning')
     with (tmp_path/'server.log').open('w') as log:
         process=subprocess.Popen([sys.executable,'-c',code,str(tmp_path),str(port)],stdout=log,stderr=log)
         base=f'http://127.0.0.1:{port}'
+        opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
         try:
             for _ in range(100):
                 if process.poll() is not None:
                     pytest.fail((tmp_path/'server.log').read_text())
                 try:
-                    urllib.request.urlopen(base+'/api/health',timeout=1).close();break
+                    opener.open(base+'/api/health',timeout=1).close();break
                 except OSError:
                     time.sleep(.1)
             else:

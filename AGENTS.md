@@ -17,3 +17,8 @@
 - Build output in `api/webui/` is generated and ignored. Do not commit dependency directories or runtime files.
 - For API development previews only: `uv run --frozen uvicorn api.main:app --host 127.0.0.1 --port 8080`. Do not expose the unauthenticated API publicly.
 - Report the actual environment and checks used. Local checks do not establish that cloud provisioning or real collection succeeded.
+
+## Delivery
+
+- After completing project changes and the required checks, commit the intended changes and push the current branch to `origin`. Report the commit and pushed branch.
+- Never include private configuration, credentials, model weights, runtime files, browser profiles, or user data in the commit. Do not force-push shared branches.

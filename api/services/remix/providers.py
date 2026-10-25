@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from .schemas import AnalysisReport
+from . import moss
 
 PROMPT_VERSION = 'remix-phase1-v1'
 MAX_SECONDS = 15*60
@@ -27,7 +28,13 @@ def config():
                 asr=os.getenv('MC_REMIX_ASR','local'),
                 asr_model=os.getenv('MC_REMIX_ASR_MODEL','whisper-1'),
                 whisper_bin=os.getenv('MC_REMIX_WHISPER_BIN') or shutil.which('whisper-cli'),
-                whisper_model=os.getenv('MC_REMIX_WHISPER_MODEL',''))
+                whisper_model=os.getenv('MC_REMIX_WHISPER_MODEL',''),
+                moss_worker=os.getenv('MC_REMIX_MOSS_WORKER','/Applications/BaoCut.app/Contents/Resources/bin/model-worker'),
+                moss_models=os.getenv('MC_REMIX_MOSS_MODELS',str(Path.home()/'.baocut/models')))
+
+
+def asr_model(c):
+    return c['asr_model'] if c['asr']=='cloud' else moss.MODEL_NAME if c['asr']=='moss' else 'whisper.cpp'
 
 
 def validate_base(url):
@@ -51,10 +58,11 @@ def status():
     if not c['api_key']:
         errors.append('尚未配置 MC_REMIX_API_KEY')
     local_ready=bool(c['whisper_bin'] and c['whisper_model'] and Path(c['whisper_model']).is_file())
+    asr_ready=(bool(c['api_key']) if c['asr']=='cloud' else local_ready if c['asr']=='local'
+               else moss.ready(c['moss_worker'],c['moss_models']) if c['asr']=='moss' else False)
     return dict(model=c['model'],model_ready=not errors,issues=errors,
                 provider_host=urlsplit(c['base_url']).hostname if not errors else None,
-                asr=c['asr'],asr_model=c['asr_model'] if c['asr']=='cloud' else 'whisper.cpp',
-                asr_ready=bool(c['api_key']) if c['asr']=='cloud' else local_ready if c['asr']=='local' else False,
+                asr=c['asr'],asr_model=asr_model(c),asr_ready=asr_ready,
                 ffmpeg_ready=bool(shutil.which('ffmpeg') and shutil.which('ffprobe')),
                 max_seconds=MAX_SECONDS,max_upload_bytes=200*1024*1024,chunk_bytes=4*1024*1024,
                 cloud_audio=c['asr']=='cloud',prompt_version=PROMPT_VERSION)
@@ -138,6 +146,11 @@ async def transcribe(audio, duration, folder):
             segments=[dict(start=s['offsets']['from']/1000,end=s['offsets']['to']/1000,text=s['text']) for s in data['transcription']]
         except (OSError,ValueError,KeyError,TypeError):
             raise AnalysisError('whisper.cpp 未返回可用的时间戳 JSON') from None
+    elif c['asr']=='moss':
+        try:
+            segments=await moss.transcribe(audio,duration,folder,c['moss_worker'],c['moss_models'])
+        except moss.MossError as exc:
+            raise AnalysisError(str(exc)) from None
     elif c['asr']=='cloud':
         validate_base(c['base_url'])
         if not c['api_key']:
@@ -157,7 +170,7 @@ async def transcribe(audio, duration, folder):
         except (httpx.HTTPError,ValueError):
             raise AnalysisError('转写服务连接失败或响应格式无效') from None
     else:
-        raise AnalysisError('MC_REMIX_ASR 需为 local 或 cloud')
+        raise AnalysisError('MC_REMIX_ASR 需为 local、moss 或 cloud')
     return validate_segments(segments,duration)
 
 

@@ -131,7 +131,7 @@ async def transcript_node(state):
         segments=await providers.transcribe(Path(state['audio']),state['duration'],folder)
         write_json(path,segments)
     c=providers.config()
-    store.update(job['id'],asr_provider=c['asr'],asr_model=c['asr_model'] if c['asr']=='cloud' else 'whisper.cpp',
+    store.update(job['id'],asr_provider=c['asr'],asr_model=providers.asr_model(c),
                  transcript_sha256=hashlib.sha256(json.dumps(segments,sort_keys=True).encode()).hexdigest())
     return {'transcript':segments}
 

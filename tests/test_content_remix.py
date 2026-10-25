@@ -96,7 +96,10 @@ def test_full_text_graph_report_export_and_draft(client,monkeypatch,isolated):
     assert client.get('/api/remix/jobs/../../private').status_code==404
 
 
-def test_video_upload_chunks_and_graph_retry_reuses_transcript(client,monkeypatch):
+@pytest.mark.parametrize('asr_mode',['cloud','moss'])
+def test_video_upload_chunks_and_graph_retry_reuses_transcript(client,monkeypatch,asr_mode):
+    monkeypatch.setenv('MC_REMIX_ASR',asr_mode)
+    monkeypatch.setattr(providers.moss,'ready',lambda *args:True)
     calls={'media':0,'asr':0,'model':0}
     body=b'video-fixture'
     upload=client.post('/api/remix/uploads',json=dict(filename='../../Travel.mp4',size=len(body),request_key='upload-key-123456789')).json()
@@ -126,6 +129,8 @@ def test_video_upload_chunks_and_graph_retry_reuses_transcript(client,monkeypatc
     assert client.post('/api/remix/jobs/'+job['id']+'/retry').status_code==200
     final=wait(client,job['id'])
     assert calls=={'media':1,'asr':1,'model':2}
+    assert final['asr_provider']==asr_mode
+    assert final['asr_model']==('MOSS-Transcribe-Diarize' if asr_mode=='moss' else 'whisper-1')
     assert final['evidence'][-1]['start']==0
     response=client.get('/api/remix/jobs/'+job['id']+'/video',headers={'Range':'bytes=0-4'})
     assert response.status_code==206 and response.content==body[:5]
