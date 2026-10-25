@@ -32,7 +32,7 @@ analytics.sqlite_db_config['db_path']=str(root/'collection.db')
 workbench.DATA_ROOT=root/'media';data.DATA_DIR=root/'media'
 schema.migrate(analytics.db_path())
 with sqlite3.connect(analytics.db_path()) as db:
-    schema.save(db,schema.normalize(dict(platform='xhs',content_id='fixture-note',title='测试旅行笔记',author='测试作者')))
+    schema.save(db,schema.normalize(dict(platform='xhs',content_id='fixture-note',title='测试旅行笔记',author='测试作者',url='https://www.xiaohongshu.com/explore/fixture-note?xsec_token=fixture-browser-token&xsec_source=pc_search')))
     db.execute('CREATE TABLE xhs_note(note_id TEXT,desc TEXT)')
     db.execute('INSERT INTO xhs_note VALUES (?,?)',('fixture-note','提出路线问题，然后展示安排方法。'))
     schema.save(db,schema.normalize(dict(platform='xhs',content_id='fixture-note',comment_id='comment-1',body='路线怎么安排？'),kind='comment'),kind='comment')
@@ -109,6 +109,25 @@ def test_remix_text_and_video_browser(remix_app,tmp_path):
         expect(page.get_by_role('status').filter(has_text='已将你的修改反馈')).to_be_visible()
         page.get_by_role('button',name='引用 E0001',exact=True).first.click()
         expect(page.get_by_role('complementary',name='引用原文')).to_contain_text('测试旅行笔记')
+        # The original-link redirect must preserve the saved signing parameters.
+        # Intercept the initial local navigation, before Chromium follows the
+        # redirect. Destination routing does not cover every redirect hop.
+        from urllib.parse import parse_qs, urlsplit
+        original_requests=[]
+        def original_note(route):
+            response=route.fetch(max_redirects=0)
+            assert response.status==302
+            target=urlsplit(response.headers['location'])
+            assert target.hostname=='www.xiaohongshu.com' and target.path=='/explore/fixture-note'
+            original_requests.append(parse_qs(target.query))
+            route.fulfill(status=200,content_type='text/html; charset=utf-8',body='<meta charset="utf-8"><h1>测试原始笔记</h1>')
+        page.context.route('https://www.xiaohongshu.com/**',lambda route:route.abort())
+        page.context.route('**/api/remix/jobs/*/source-link',original_note)
+        with page.expect_popup() as popup:
+            page.get_by_role('link',name='查看原始小红书内容',exact=False).click()
+        expect(popup.value.get_by_role('heading',name='测试原始笔记')).to_be_visible()
+        assert original_requests[0]['xsec_token']==['fixture-browser-token']
+        popup.value.close()
         with page.expect_download() as download:
             page.get_by_role('button',name='导出 Markdown',exact=True).click()
         assert 'E0001' in Path(download.value.path()).read_text()

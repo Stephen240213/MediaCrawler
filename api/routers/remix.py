@@ -5,10 +5,10 @@ import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse, RedirectResponse
 
 from api.services import analytics, workbench_store
-from api.services.remix import providers, store, workflow, knowledge
+from api.services.remix import providers, store, workflow, knowledge, source_links
 from api.services.remix.schemas import JobInput, UploadInput, KnowledgeInput, VersionInput
 
 router=APIRouter(prefix='/remix',tags=['ContentRemixAgent'])
@@ -105,6 +105,15 @@ def submit(payload: JobInput, request: Request):
 @router.get('/jobs/{job_id}')
 def get_job(job_id: str):
     return job_or_404(job_id)
+
+
+@router.get('/jobs/{job_id}/source-link')
+def original_source_link(job_id: str):
+    job=job_or_404(job_id)
+    target=source_links.original_url(job)
+    if not target:
+        raise HTTPException(404,'本任务没有原始小红书笔记链接')
+    return RedirectResponse(target,status_code=302,headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer'})
 
 
 @router.post('/jobs/{job_id}/cancel')
