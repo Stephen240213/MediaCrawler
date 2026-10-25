@@ -1,0 +1,31 @@
+.remix {display:grid;gap:22px;min-width:0}
+.remix-card {padding:24px;min-width:0}
+.remix h2 {font-size:18px;margin:0 0 16px}
+.remix h3 {font-size:16px;margin:20px 0 12px}
+.remix p,.remix li {line-height:1.8;overflow-wrap:anywhere}
+.remix fieldset {border:0;padding:0;margin:0;min-width:0;display:grid;gap:16px}
+.remix label {display:grid;gap:8px;font-size:14px}
+.remix input:not([type=checkbox]),.remix select {width:100%;min-width:0;border:1px solid #e5def2;border-radius:8px;padding:11px;background:#fff;color:inherit}
+.remix .remix-check {display:flex;align-items:flex-start;gap:10px;line-height:1.7}
+.remix-check input {margin-top:6px;flex-shrink:0}
+.remix-status {display:flex;flex-wrap:wrap;gap:12px;margin:16px 0;font-size:13px}
+.remix details {padding:12px;border:1px solid #e9e2f3;border-radius:8px}
+.remix summary {cursor:pointer}
+.remix pre {overflow:auto;max-width:100%;padding:12px;background:#f7f5fb;font-size:12px}
+.remix-job-list {display:grid;gap:8px}
+.remix-job {display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left;background:white;border:1px solid #ede8f4;border-radius:9px;padding:14px;color:inherit;cursor:pointer;min-width:0}
+.remix-job.selected {background:#f6f1ff;border-color:#b899ee}
+.remix-job span {min-width:0;overflow-wrap:anywhere}
+.remix-job small {display:block;color:#8b809e;margin-top:6px}
+.remix-job strong {flex-shrink:0;font-size:13px}
+.remix-section {border-top:1px solid #eee8f6;margin:20px 0;padding-top:10px}
+.remix-finding {padding-bottom:12px}
+.remix-citations {display:inline-flex;flex-wrap:wrap;gap:6px;margin:4px 10px 4px 0}
+.remix-citations .wb-button {font-size:12px;padding:5px 9px}
+.remix-citation {border:1px solid #bca2e9;background:#faf7ff;padding:18px;border-radius:10px;margin-top:16px}
+.remix-video video {width:100%;max-height:440px;background:#17141e;border-radius:8px}
+@media(max-width:600px){.remix-card{padding:16px}.remix .an-heading{align-items:flex-start;flex-wrap:wrap}.remix-job{align-items:flex-start;gap:8px}}
+
+.remix-metrics {display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px;background:#faf8fd;border-radius:8px;padding:14px}
+.remix-metrics dt {font-size:12px;color:#8b809e}
+.remix-metrics dd {margin:6px 0 0;overflow-wrap:anywhere;font-size:14px}

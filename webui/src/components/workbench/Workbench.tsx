@@ -14,14 +14,16 @@ import { DataExplorer } from '@/components/data/DataExplorer'
 import './workbench.css'
 import { RemoteStatus } from './RemoteStatus'
 import { Analytics } from './Analytics'
+import { ContentRemixAgent } from './ContentRemixAgent'
 
-type Page = 'collect' | 'drafts' | 'assets' | 'data' | 'tasks' | 'analytics'
+type Page = 'collect' | 'drafts' | 'assets' | 'data' | 'tasks' | 'analytics' | 'remix'
 const pages = [
   {id: 'collect' as const, label: '采集工作台', icon: LayoutDashboard},
   {id: 'drafts' as const, label: '草稿预览', icon: FilePenLine},
   {id: 'assets' as const, label: '素材管理', icon: Images},
   {id: 'data' as const, label: '数据文件', icon: Database},
   {id: 'analytics' as const, label: '数据分析', icon: Activity},
+  {id: 'remix' as const, label: 'AI 内容分析', icon: Sparkles},
   {id: 'tasks' as const, label: '任务记录', icon: Activity},
 ]
 const localTools = [
@@ -45,7 +47,7 @@ export function Workbench({onLicense}: {onLicense: () => void}) {
       <div className="wb-sidebar-bottom"><div><ShieldCheck size={17}/><span>本机存储<small>数据与草稿保存在电脑上</small></span></div><button onClick={onLicense}>查看项目使用条款 <ArrowUpRight size={13}/></button></div>
     </aside>
     <div className="wb-main"><header className="wb-topbar"><span>工作空间 <span className="wb-slash">/</span> <strong>{active.label}</strong></span><span className={`wb-service ${online ? '' : 'offline'}`}><i/>{isError ? '本机服务离线' : online ? '本机服务在线' : '正在连接服务'}<span>127.0.0.1</span></span></header>
-      <main className="wb-content"><div className="wb-page-heading"><div><p className="wb-eyebrow">YOUR LOCAL WORKSPACE</p><h1>{active.label}</h1><p>{page === 'analytics' ? '基于本机 SQLite 采集数据，查看趋势、互动与评论。' : page === 'collect' ? '从内容发现到灵感整理，让每一步清晰可见。' : page === 'drafts' ? '把灵感整理为草稿，一边编辑，一边预览。' : page === 'assets' ? '管理采集媒体与本机图片，随时用于草稿。' : page === 'tasks' ? '查看真实执行结果，回溯每次采集。' : '预览与导出已保存的采集数据。'}</p></div><span className="wb-local-label"><Monitor size={16}/>本机工作台</span></div>
+      <main className="wb-content"><div className="wb-page-heading"><div><p className="wb-eyebrow">YOUR LOCAL WORKSPACE</p><h1>{active.label}</h1><p>{page === 'remix' ? '从真实素材出发，生成带引用的内容拆解报告。' : page === 'analytics' ? '基于本机 SQLite 采集数据，查看趋势、互动与评论。' : page === 'collect' ? '从内容发现到灵感整理，让每一步清晰可见。' : page === 'drafts' ? '把灵感整理为草稿，一边编辑，一边预览。' : page === 'assets' ? '管理采集媒体与本机图片，随时用于草稿。' : page === 'tasks' ? '查看真实执行结果，回溯每次采集。' : '预览与导出已保存的采集数据。'}</p></div><span className="wb-local-label"><Monitor size={16}/>本机工作台</span></div>
       <RemoteStatus/>
       {page === 'collect' && <>
         <section className="wb-hero"><span className="wb-hero-icon"><Sparkles size={27}/></span><div><h2>发现内容，沉淀灵感</h2><p>搜索内容、采集评论，将图片与想法整理成自己的草稿。</p><span>内容采集 <i/> 本机素材 <i/> 草稿预览</span></div><button className="wb-button primary" onClick={() => setPage('drafts')}><FilePenLine size={16}/>打开草稿 <ArrowUpRight size={15}/></button></section>
@@ -56,6 +58,7 @@ export function Workbench({onLicense}: {onLicense: () => void}) {
       {page === 'assets' && <AssetLibrary onUse={useAsset}/>}
       {page === 'data' && <section className="wb-card wb-data-panel"><DataExplorer/></section>}
       {page === 'analytics' && <Analytics/>}
+      {page === 'remix' && <ContentRemixAgent/>}
       {page === 'tasks' && <><TaskHistory/><div className="wb-history-current"><TaskPanel/></div></>}
       <footer className="wb-footer">MediaCrawler · 本机内容工作台<span>内容采集 · 素材整理 · 草稿预览</span></footer>
       </main>
