@@ -5,6 +5,7 @@ import {canOperate, useSession} from '@/lib/session'
 import {errorMessage} from '@/lib/workbench'
 import {BriefForm, defaultBrief, EvidenceCoverage, KnowledgePanel, RewriteResults, type Rewrite} from './remix-creation'
 import {ProfilePanel, CommentTopics, PublicationPanel} from './remix-learning'
+import {ProductionPanel} from './remix-production'
 import './remix.css'
 
 type Config = {provider_host?: string; model: string; model_ready: boolean; issues: string[]; asr: string; asr_model: string; asr_ready: boolean; ffmpeg_ready: boolean; cloud_audio: boolean; max_seconds: number; chunk_bytes: number}
@@ -136,6 +137,7 @@ export function ContentRemixAgent() {
         <CommentTopics jobId={job.id} onCite={citations}/>
         {!!job.report.comment_analysis?.length&&<section className="remix-section"><h3>评论样本分析</h3>{job.report.comment_analysis.map((finding,i)=><div key={i} className="remix-finding"><p><strong>观察：</strong>{finding.observation}</p><p><strong>改写启发：</strong>{finding.interpretation}</p>{citations(finding.evidence_ids)}</div>)}</section>}
         {!!job.report.rewrites?.length&&<RewriteResults jobId={job.id} rewrites={job.report.rewrites} framework={job.report.recommended_framework||''} reason={job.report.framework_reason||''} writable={writable} brief={job.source?.creative_brief||job.input?.brief} profileId={job.source?.profile?.id||''} onCite={citations}/>}
+        <ProductionPanel key={job.id} jobId={job.id} writable={writable}/>
         <PublicationPanel jobId={job.id} writable={writable} profileId={job.source?.profile?.id||''} topic={(job.source?.creative_brief||job.input?.brief)?.topic} contentType={(job.source?.creative_brief||job.input?.brief)?.content_type}/>
         <h3>原创选题与提纲</h3>{job.report.ideas.map((idea,i)=><section className="remix-section" key={i}><h4>{idea.title}</h4><ol>{idea.outline.map((line,n)=><li key={n}>{line}</li>)}</ol>{citations(idea.evidence_ids)}<button className="wb-button" disabled={!writable} onClick={()=>void saveDraft(i)}>保存提纲到草稿</button></section>)}
         <h3>待补充与核实</h3><ul>{job.report.limitations.map((line,i)=><li key={i}>{line}</li>)}</ul><p className="wb-hint">模型：{job.model}{job.cache_hit?' · 复用已校验报告缓存':''} · 提示词：{job.prompt_version} · {job.usage?.total_tokens!==undefined?`${job.usage.total_tokens} token`:'服务未提供 token 用量'} · 更新于 {new Date(job.updated_at).toLocaleString('zh-CN')}</p>

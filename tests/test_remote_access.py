@@ -223,7 +223,8 @@ def test_remix_mutations_keep_operator_and_csrf_boundary(signing,tmp_path,monkey
     monkeypatch.setattr(store,'DB_PATH',tmp_path/'workbench.db')
     monkeypatch.setitem(analytics.sqlite_db_config,'db_path',str(tmp_path/'collection.db'))
     endpoints=[('post','/api/remix/jobs'),('post','/api/remix/uploads'),('put','/api/remix/uploads/'+'a'*32+'?offset=0'),
-               ('post','/api/remix/jobs/'+'a'*32+'/cancel'),('post','/api/remix/jobs/'+'a'*32+'/retry'),('post','/api/remix/jobs/'+'a'*32+'/draft')]
+               ('post','/api/remix/jobs/'+'a'*32+'/cancel'),('post','/api/remix/jobs/'+'a'*32+'/retry'),('post','/api/remix/jobs/'+'a'*32+'/draft'),
+               ('post','/api/remix/jobs/'+'a'*32+'/productions')]
     with TestClient(Boundary(app,signing[2],verifier=verifier(signing)),base_url='https://crawler.test') as client:
         viewer=auth(signing,sub='viewer-sub',email='viewer@test.invalid')
         csrf=client.get('/api/session',headers=viewer).json()['csrf_token']

@@ -154,3 +154,36 @@ class ObservationInput(StrictModel):
     promoted: bool | None = None
     notes: str = Field(default='', max_length=1000)
     request_key: str = Field(pattern=r'^[a-zA-Z0-9_-]{16,128}$')
+
+
+class DesignPage(StrictModel):
+    title: str = Field(min_length=1, max_length=80)
+    body: str = Field(default='', max_length=900)
+    eyebrow: str = Field(default='', max_length=30)
+    footer: str = Field(default='', max_length=50)
+
+
+class SubtitleCue(StrictModel):
+    start: float = Field(ge=0, le=900, allow_inf_nan=False)
+    end: float = Field(gt=0, le=900, allow_inf_nan=False)
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class ProductionChecks(StrictModel):
+    copy_checked: bool = False
+    facts: bool = False
+    rights: bool = False
+    subtitles: bool = False
+
+
+class ProductionInput(StrictModel):
+    version_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+    theme: Literal['paper', 'ocean', 'night'] = 'paper'
+    ratio: Literal['3:4', '1:1', '9:16'] = '3:4'
+    cover: DesignPage
+    cards: list[DesignPage] = Field(default_factory=list, max_length=8)
+    subtitle_basis: Literal['none', 'original_video', 'manual_timeline'] = 'none'
+    subtitle_duration: float | None = Field(default=None, gt=0, le=900, allow_inf_nan=False)
+    cues: list[SubtitleCue] = Field(default_factory=list, max_length=1500)
+    checks: ProductionChecks = Field(default_factory=ProductionChecks)
+    request_key: str = Field(pattern=r'^[a-zA-Z0-9_-]{16,128}$')

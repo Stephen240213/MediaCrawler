@@ -8,8 +8,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse, RedirectResponse
 
 from api.services import analytics, workbench_store
-from api.services.remix import providers, store, workflow, knowledge, source_links, profiles, publications
-from api.services.remix.schemas import JobInput, UploadInput, KnowledgeInput, VersionInput, ProfileInput, PublicationInput, ObservationInput
+from api.services.remix import providers, store, workflow, knowledge, source_links, profiles, publications, production
+from api.services.remix.schemas import JobInput, UploadInput, KnowledgeInput, VersionInput, ProfileInput, PublicationInput, ObservationInput, ProductionInput
 
 router=APIRouter(prefix='/remix',tags=['ContentRemixAgent'])
 
@@ -343,3 +343,65 @@ def add_observation(publication_id: str, payload: ObservationInput, request: Req
 def publication_review(publication_id: str, metric: str=Query('favorites',max_length=30), window_hours: int=Query(72,ge=1,le=2160), tolerance_hours: int=Query(24,ge=0,le=168)):
     try:return publications.review(identifier(publication_id),metric,window_hours,tolerance_hours)
     except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/production/config')
+def production_configuration():
+    return production.status()
+
+
+@router.get('/jobs/{job_id}/production-seed')
+def production_seed(job_id: str, version_id: str=Query(pattern=r'^[a-f0-9]{32}$')):
+    job_or_404(job_id)
+    try:return production.seed(job_id,version_id)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/jobs/{job_id}/original-subtitles')
+def original_subtitles(job_id: str):
+    job_or_404(job_id)
+    try:return production.original_subtitles(job_id)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/jobs/{job_id}/productions')
+def production_versions(job_id: str):
+    job_or_404(job_id)
+    return production.listing(job_id)
+
+
+@router.post('/jobs/{job_id}/productions')
+def create_production(job_id: str, payload: ProductionInput, request: Request):
+    job_or_404(job_id)
+    try:return production.save(job_id,payload,actor(request))
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+def production_or_404(revision_id):
+    revision=production.get(identifier(revision_id))
+    if not revision:raise HTTPException(404,'制作版本不存在')
+    return revision
+
+
+@router.get('/productions/{revision_id}')
+def production_detail(revision_id: str):
+    return production_or_404(revision_id)
+
+
+@router.get('/productions/{revision_id}/assets/{name}')
+def production_asset(revision_id: str, name: str):
+    revision=production_or_404(revision_id)
+    try:body=production.asset(revision,name)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+    mime='image/png' if name.endswith('.png') else 'text/vtt; charset=utf-8' if name.endswith('.vtt') else 'application/json' if name.endswith('.json') else 'text/plain; charset=utf-8'
+    return Response(body,media_type=mime,headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
+        'Content-Disposition':f'inline; filename="{name}"'})
+
+
+@router.get('/productions/{revision_id}/manual-package.zip')
+def manual_package(revision_id: str):
+    revision=production_or_404(revision_id)
+    try:body=production.bundle(revision)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+    return Response(body,media_type='application/zip',headers={'Cache-Control':'no-store',
+        'Content-Disposition':f'attachment; filename="ContentRemix-manual-{revision_id}.zip"'})

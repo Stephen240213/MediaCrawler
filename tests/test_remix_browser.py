@@ -112,7 +112,7 @@ def test_remix_text_and_video_browser(remix_app,tmp_path):
         page.get_by_label('修改反馈',exact=True).fill('以后将适用条件提前说明')
         page.get_by_role('button',name='保存成稿版本',exact=True).click()
         expect(page.get_by_role('status').filter(has_text='已保存新版本')).to_be_visible()
-        page.get_by_text('人工确认的标题 ·',exact=False).click()
+        page.locator('summary').filter(has_text='人工确认的标题 ·').click()
         page.get_by_role('button',name='采用并保存到草稿',exact=True).click()
         expect(page.get_by_role('status').filter(has_text='已采用此版本')).to_be_visible()
         page.get_by_role('button',name='确认修改经验',exact=True).click()
@@ -187,6 +187,25 @@ def test_remix_text_and_video_browser(remix_app,tmp_path):
         page.get_by_role('button',name='0:00',exact=False).click()
         expect(page.get_by_role('button',name='跳转视频',exact=False)).to_be_visible()
         page.get_by_role('button',name='跳转视频',exact=False).click()
+        page.get_by_label('成稿标题',exact=True).fill('视频字幕校对稿')
+        page.get_by_role('button',name='保存成稿版本',exact=True).click()
+        expect(page.get_by_role('status').filter(has_text='已保存新版本')).to_be_visible()
+        panel=page.get_by_role('region',name='封面卡片字幕制作',exact=True)
+        panel.get_by_label('制作来源成稿',exact=True).select_option(index=1)
+        panel.get_by_role('button',name='从成稿生成制作草案',exact=False).click()
+        panel.get_by_text('字幕校对与时间轴（0 段）',exact=True).click()
+        panel.get_by_label('字幕对应素材',exact=True).select_option('original_video')
+        panel.get_by_role('button',name='加载原视频完整字幕',exact=True).click()
+        expect(panel.get_by_label('第1段字幕',exact=True)).to_have_value('浏览器测试转写片段')
+        panel.get_by_role('button',name='保存制作版本并生成预览',exact=True).click()
+        expect(panel.get_by_role('heading',name='原视频字幕预览（仅原素材）',exact=True)).to_be_visible()
+        track=panel.locator('video track')
+        expect(track).to_have_attribute('src',__import__('re').compile(r'/assets/original-video\.vtt$'))
+        track_url=track.get_attribute('src')
+        assert '浏览器测试转写片段' in page.request.get(remix_app+track_url).text()
+        with page.expect_download() as subtitle_download:
+            panel.get_by_role('button',name='下载 SRT 字幕',exact=True).click()
+        assert '00:00:00,000 --> 00:00:00,800' in Path(subtitle_download.value.path()).read_text()
         for width,height,name in [(768,1024,'tablet'),(390,844,'mobile')]:
             page.set_viewport_size({'width':width,'height':height})
             page.evaluate('window.scrollTo(0,0)')
@@ -197,5 +216,92 @@ def test_remix_text_and_video_browser(remix_app,tmp_path):
         page.get_by_role('button',name='刷新配置与素材',exact=True).click()
         expect(page.get_by_text('尚未配置 MC_REMIX_API_KEY',exact=True)).to_be_visible()
         expect(page.get_by_role('button',name='开始分析',exact=True)).to_be_disabled()
+        assert not errors,errors
+        browser.close()
+
+
+def test_remix_production_browser(remix_app,tmp_path):
+    """Full template/subtitle/package flow with isolated data and mocked model only."""
+    import json
+    import zipfile
+    from PIL import Image
+    evidence=Path('/tmp/mediacrawler-remix-production-proof');evidence.mkdir(exist_ok=True)
+    with sync_playwright() as p:
+        browser=p.chromium.launch(executable_path=os.environ.get('MEDIACRAWLER_TEST_BROWSER') or None,headless=True)
+        page=browser.new_page(viewport={'width':1440,'height':1100})
+        errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+        response=page.request.post(remix_app+'/api/remix/jobs',data=dict(source='xhs',content_id='fixture-note',consent=True,request_key='production-browser-job-1234'))
+        assert response.ok,response.text()
+        job_id=response.json()['id']
+        for _ in range(100):
+            item=page.request.get(remix_app+'/api/remix/jobs/'+job_id).json()
+            if item['status']=='completed':break
+            assert item['status']!='failed',item.get('error')
+            time.sleep(.1)
+        else:pytest.fail('fixture analysis did not finish')
+        response=page.request.post(remix_app+f'/api/remix/jobs/{job_id}/versions',data=dict(rewrite_index=0,title='双月湾旅居：先核对这三件事',content='先问清费用包含哪些项目。\n再确认租期、付款方式和退租条件。\n最后实地查看潮湿、隔音与生活配套。',request_key='production-browser-version'))
+        assert response.ok,response.text()
+        version=response.json()
+        page.add_init_script("localStorage.setItem('mediacrawler_license_accepted','true');localStorage.setItem('mediacrawler_env_checked','true')")
+        page.goto(remix_app)
+        page.get_by_role('button',name='AI 内容分析',exact=True).click()
+        page.locator('.remix-job').first.click()
+        panel=page.get_by_role('region',name='封面卡片字幕制作',exact=True)
+        panel.get_by_label('制作来源成稿',exact=True).select_option(version['id'])
+        panel.get_by_role('button',name='从成稿生成制作草案',exact=False).click()
+        expect(panel.get_by_label('封面标题',exact=True)).to_have_value(version['title'])
+        panel.get_by_label('封面标题',exact=True).fill('双月湾旅居，入住前先核对')
+        panel.get_by_label('封面正文',exact=True).fill('费用范围 · 租期条件 · 实地体验')
+        panel.get_by_label('封面栏目',exact=True).fill('旅居观察')
+        panel.get_by_label('排版风格',exact=True).select_option('ocean')
+        panel.get_by_text('内容卡片（1 / 8）',exact=True).click()
+        panel.get_by_label('卡片1标题',exact=True).fill('问清这三项，再做决定')
+        panel.get_by_role('button',name='新增内容卡片',exact=True).click()
+        panel.get_by_label('卡片2标题',exact=True).fill('把疑问变成看房清单')
+        panel.get_by_label('卡片2正文',exact=True).fill('价格口径、付款方式和实地体验，逐项记录。')
+        panel.get_by_role('button',name='上移卡片',exact=True).last.click()
+        expect(panel.get_by_label('卡片1标题',exact=True)).to_have_value('把疑问变成看房清单')
+        panel.get_by_text('字幕校对与时间轴（0 段）',exact=True).click()
+        panel.get_by_label('字幕对应素材',exact=True).select_option('manual_timeline')
+        panel.get_by_label('字幕对应视频时长（秒）',exact=True).fill('5')
+        panel.get_by_role('button',name='新增字幕段',exact=True).click()
+        panel.get_by_label('第1段字幕',exact=True).fill('先问清费用，再确认条件。')
+        panel.get_by_label('第1段结束秒',exact=True).fill('3.25')
+        panel.get_by_role('button',name='保存制作版本并生成预览',exact=True).click()
+        expect(panel.get_by_role('status').filter(has_text='制作版本已保存')).to_be_visible()
+        expect(panel.get_by_role('img',name='保存的封面预览',exact=True)).to_be_visible()
+        expect(panel.get_by_role('button',name='下载人工发布包 ZIP',exact=True)).to_be_disabled()
+        for name in ['已核对标题、正文、封面及卡片内容','已核对待核实信息和事实表述','已确认发布内容及素材的使用权利','已在对应视频中校对字幕文字和真实时间轴']:
+            panel.get_by_role('checkbox',name=name,exact=True).check()
+        # Changing any artwork clears manual confirmation.
+        panel.get_by_label('封面页脚',exact=True).fill('记录真实信息')
+        expect(panel.get_by_role('checkbox',name='已核对标题、正文、封面及卡片内容',exact=True)).not_to_be_checked()
+        for name in ['已核对标题、正文、封面及卡片内容','已核对待核实信息和事实表述','已确认发布内容及素材的使用权利','已在对应视频中校对字幕文字和真实时间轴']:
+            panel.get_by_role('checkbox',name=name,exact=True).check()
+        panel.get_by_role('button',name='保存制作版本并生成预览',exact=True).click()
+        expect(panel.get_by_role('button',name='下载人工发布包 ZIP',exact=True)).to_be_enabled()
+        with page.expect_download() as downloaded:
+            panel.get_by_role('button',name='下载人工发布包 ZIP',exact=True).click()
+        with zipfile.ZipFile(downloaded.value.path()) as archive:
+            assert archive.read('body.txt').decode()==version['content']
+            assert '00:00:03,250' in archive.read('manual-video.srt').decode()
+            manifest=json.loads(archive.read('manifest.json'))
+            assert not manifest['published'] and manifest['version_id']==version['id']
+            for name in ['cover.png','card-01.png','card-02.png']:
+                (evidence/name).write_bytes(archive.read(name))
+                assert Image.open(evidence/name).size==(1080,1440)
+        # Reload only reads durable revisions; no extra model request.
+        revision=panel.get_by_label('历史制作版本',exact=True).input_value()
+        page.reload();page.get_by_role('button',name='AI 内容分析',exact=True).click();page.locator('.remix-job').first.click()
+        panel=page.get_by_role('region',name='封面卡片字幕制作',exact=True)
+        panel.get_by_label('历史制作版本',exact=True).select_option(revision)
+        panel.get_by_role('button',name='载入所选制作版本进行编辑',exact=True).click()
+        expect(panel.get_by_label('封面标题',exact=True)).to_have_value('双月湾旅居，入住前先核对')
+        expect(panel.get_by_role('button',name='下载人工发布包 ZIP',exact=True)).to_be_enabled()
+        for width,height,name in [(1440,1100,'desktop'),(390,844,'mobile')]:
+            page.set_viewport_size({'width':width,'height':height})
+            panel.scroll_into_view_if_needed()
+            panel.screenshot(path=str(evidence/(name+'.png')))
+            assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
         assert not errors,errors
         browser.close()

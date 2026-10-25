@@ -41,3 +41,11 @@
 .remix-table table {border-collapse:collapse;width:100%;min-width:540px;text-align:left;font-size:13px}
 .remix-table th,.remix-table td {border-bottom:1px solid #e9e2f3;padding:12px;vertical-align:top;line-height:1.7}
 .remix-table th {background:#faf8fd}
+.remix-page-editor {display:grid;gap:14px;margin-top:14px}
+.remix-artwork-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:18px;margin:20px 0}
+.remix-artwork-grid figure {margin:0;min-width:0;padding:10px;background:#f7f5fa;border:1px solid #e9e2f3;border-radius:12px}
+.remix-artwork-grid img {display:block;width:100%;height:auto;max-height:520px;object-fit:contain;border-radius:6px}
+.remix-artwork-grid figcaption {display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;margin-top:10px;font-size:13px}
+.remix-cue {border-bottom:1px solid #e9e2f3;padding:12px 0;display:grid;gap:12px}
+.remix-production-preview {min-width:0}
+@media(max-width:400px){.remix-artwork-grid{grid-template-columns:minmax(0,1fr)}}
