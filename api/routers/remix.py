@@ -8,8 +8,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 
 from api.services import analytics, workbench_store
-from api.services.remix import providers, store, workflow
-from api.services.remix.schemas import JobInput, UploadInput
+from api.services.remix import providers, store, workflow, knowledge
+from api.services.remix.schemas import JobInput, UploadInput, KnowledgeInput, VersionInput
 
 router=APIRouter(prefix='/remix',tags=['ContentRemixAgent'])
 
@@ -41,7 +41,7 @@ def sources(page: int=Query(1,ge=1), search: str=Query('',max_length=200)):
     with analytics.read_db() as (db,_):
         where="platform='xhs' AND (instr(coalesce(title,''),?)>0 OR content_id=?)"
         total=db.execute('SELECT count(*) FROM analytics_content WHERE '+where,(search,search)).fetchone()[0]
-        rows=db.execute('SELECT content_id,title,author,content_type FROM analytics_content WHERE '+where+' ORDER BY collected_at DESC,content_id LIMIT 20 OFFSET ?',(search,search,(page-1)*20)).fetchall()
+        rows=db.execute("SELECT content_id,title,author,content_type,(SELECT count(*) FROM analytics_comment m WHERE m.platform='xhs' AND m.content_id=analytics_content.content_id) AS saved_comments FROM analytics_content WHERE "+where+' ORDER BY collected_at DESC,content_id LIMIT 20 OFFSET ?',(search,search,(page-1)*20)).fetchall()
     return dict(total=total,items=[{**dict(row),'video_available':bool(workflow.local_video(row['content_id']))} for row in rows],page=page)
 
 
@@ -85,7 +85,7 @@ def jobs(page: int=Query(1,ge=1)):
 @router.post('/jobs')
 def submit(payload: JobInput, request: Request):
     if not payload.consent:
-        raise HTTPException(422,'请确认所选正文/转写会发送给配置的模型服务；云端转写还会发送音频')
+        raise HTTPException(422,'请确认正文、转写、所选评论、创作需求和适用写作经验会发送给配置的模型服务；云端转写还会发送音频')
     if payload.source=='upload' and not payload.analyze_video:
         raise HTTPException(422,'上传视频需选择视频转写分析')
     config=providers.status()
@@ -193,3 +193,75 @@ def save_draft(job_id: str, idea: int=Query(0,ge=0,le=4)):
                    tags=[],images=[],platform='xhs',version=1,updated_at=store.now())
         db.execute('INSERT INTO documents VALUES (?,?,?)',('draft',draft_id,json.dumps(draft,ensure_ascii=False)))
     return draft
+
+
+@router.get('/knowledge')
+def list_knowledge(page: int=Query(1,ge=1)):
+    return knowledge.listing(page)
+
+
+@router.post('/knowledge')
+def create_knowledge(payload: KnowledgeInput, request: Request):
+    try:
+        return knowledge.save(payload,actor(request))
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from exc
+
+
+@router.put('/knowledge/{entry_id}')
+def update_knowledge(entry_id: str, payload: KnowledgeInput, request: Request):
+    try:
+        return knowledge.save(payload,actor(request),identifier(entry_id))
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/knowledge/{entry_id}/history')
+def knowledge_history(entry_id: str):
+    return knowledge.history(identifier(entry_id))
+
+
+@router.delete('/knowledge/{entry_id}')
+def delete_knowledge(entry_id: str):
+    try:
+        knowledge.remove(identifier(entry_id))
+        return {'deleted':True}
+    except ValueError as exc:
+        raise HTTPException(404,str(exc)) from exc
+
+
+@router.get('/jobs/{job_id}/versions')
+def list_versions(job_id: str):
+    job_or_404(job_id)
+    return store.versions(job_id)
+
+
+@router.post('/jobs/{job_id}/versions')
+def save_version(job_id: str, payload: VersionInput, request: Request):
+    job_or_404(job_id)
+    try:
+        return store.save_version(job_id,payload,actor(request))
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from exc
+
+
+@router.post('/jobs/{job_id}/versions/{version_id}/adopt')
+def adopt_version(job_id: str, version_id: str):
+    job=job_or_404(job_id)
+    if job['status']!='completed':
+        raise HTTPException(409,'任务尚未完成')
+    try:
+        version=store.adopt_version(job_id,identifier(version_id))
+    except ValueError as exc:
+        raise HTTPException(404,str(exc)) from exc
+    draft_id='remix-version-'+version['id']
+    with workbench_store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute("SELECT body FROM documents WHERE kind='draft' AND id=?",(draft_id,)).fetchone()
+        if row:
+            return dict(version=version,draft=json.loads(row[0]))
+        platform=job['input'].get('brief',{}).get('platform','xhs')
+        draft=dict(id=draft_id,title=version['title'],content=version['content'],tags=version['tags'],
+                   images=[],platform=platform,version=1,updated_at=store.now())
+        db.execute('INSERT INTO documents VALUES(?,?,?)',('draft',draft_id,json.dumps(draft,ensure_ascii=False)))
+    return dict(version=version,draft=draft)

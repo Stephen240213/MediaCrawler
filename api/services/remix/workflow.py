@@ -13,7 +13,7 @@ from langsmith import tracing_context
 from api.services import analytics
 from api.services.lease import Lease
 from media_downloader.paths import build_media_dir
-from . import store, providers
+from . import store, providers, context
 from .providers import AnalysisError
 
 
@@ -34,8 +34,8 @@ def source_for(payload):
         item=store.upload(payload.upload_id)
         if not item or not item['sha256'] or not store.upload_path(item).is_file():
             raise AnalysisError('请先完整上传视频')
-        return dict(kind='upload',title=payload.title or Path(item['filename']).stem,upload_id=item['id'],
-                    body='',sha256=item['sha256'],url=None,video_available=True)
+        return context.snapshot(dict(kind='upload',title=payload.title or Path(item['filename']).stem,upload_id=item['id'],
+                    body='',sha256=item['sha256'],url=None,video_available=True),payload)
     if not payload.content_id:
         raise AnalysisError('请选择已有的小红书内容')
     with analytics.read_db() as (db,_):
@@ -47,12 +47,13 @@ def source_for(payload):
             native=db.execute('SELECT * FROM xhs_note WHERE note_id=? LIMIT 1',(payload.content_id,)).fetchone()
             if native:
                 body=str(dict(native).get('desc') or '')
-    return dict(kind='xhs',title=(note.get('title') or payload.content_id)[:1000],body=body[:providers.MAX_SOURCE_CHARS-1000],
-                truncated=len(body)>providers.MAX_SOURCE_CHARS-1000,content_id=payload.content_id,author=note.get('author'),
+        saved_total,comments=context.saved_comments(db,payload.content_id) if payload.include_comments else (0,[])
+    return context.snapshot(dict(kind='xhs',title=(note.get('title') or payload.content_id)[:1000],body=body[:providers.MAX_SOURCE_CHARS-1000],
+                truncated=len(body)>providers.MAX_SOURCE_CHARS-1000,original_body_chars=len(body),content_id=payload.content_id,author=note.get('author'),
                 url='https://www.xiaohongshu.com/explore/'+quote(payload.content_id,safe=''),
                 published_at=note.get('published_at'),collected_at=note.get('collected_at'),
                 metrics={k:note.get(k) for k in ('likes','favorites','comments','shares')},
-                video_available=bool(local_video(payload.content_id)))
+                video_available=bool(local_video(payload.content_id))),payload,comments,saved_total)
 
 
 def local_video(content_id):
@@ -137,18 +138,7 @@ async def transcript_node(state):
 
 
 def build_evidence(source, transcript):
-    evidence=[]
-    def append(kind,text,**extra):
-        evidence.append(dict(id=f'E{len(evidence)+1:04d}',kind=kind,text=text,**extra))
-    append('title',source['title'][:1000])
-    body=source.get('body','')
-    for start in range(0,len(body),600):
-        append('body',body[start:start+600])
-    for segment in transcript:
-        append('transcript',segment['text'],start=segment['start'],end=segment['end'])
-    if sum(len(e['text']) for e in evidence)>providers.MAX_SOURCE_CHARS:
-        raise AnalysisError('正文与转写合计超过 30000 字，请使用更短素材或单独上传视频')
-    return evidence
+    return context.build_evidence(source, transcript)
 
 
 async def evidence_node(state):
@@ -176,14 +166,21 @@ async def analysis_node(state):
 async def validate_node(state):
     job=store.get(state['job_id']);stage(job['id'],'validate')
     report=providers.validate_report(state['report'],state['evidence'])
-    limitations=['单条内容分析不能证明爆款因果，创作建议为待验证假设。','第一版未分析封面、画面及评论，不能据此推断视觉效果或观众反馈。']
+    limitations=[]
     if not job['source'].get('body'):
-        limitations.append('源数据没有独立正文。摘要与拆解仅基于现有标题和所选视频转写。')
-    if job['source'].get('truncated'):
-        limitations.append('正文因输入长度上限被截断，仅分析保存的前段内容。')
+        limitations.append('没有独立正文，内容分析基于标题、所选语音及补充材料。')
     if state.get('transcript'):
-        limitations.append('语音识别可能存在错字，引用时间戳来自转写结果，需结合原视频核查。')
-    report['limitations']=list(dict.fromkeys(report['limitations']+limitations))
+        limitations.append('语音识别可能存在错字，请结合视频核对引用。')
+    if not job['source'].get('comment_samples') and job['input'].get('include_comments',True):
+        limitations.append('本次没有可用评论样本，可补充评论后新建分析。')
+    # Visuals and sample scope are displayed separately from actionable missing facts.
+    merged=report['limitations']+limitations
+    seen=set(); concise=[]
+    for item in merged:
+        key=''.join(c for c in item if c.isalnum())
+        if key not in seen:
+            seen.add(key);concise.append(item)
+    report['limitations']=concise[:5]
     store.update(job['id'],status='completed',stage='completed',report=report,error=None,
                  model=state['model'],usage=state['usage'],cache_hit=state.get('cache_hit',False),prompt_version=providers.PROMPT_VERSION,
                  evidence_sha256=hashlib.sha256(json.dumps(state['evidence'],sort_keys=True).encode()).hexdigest(),finished_at=store.now())
@@ -297,6 +294,24 @@ def markdown(job):
         out += [f"## {section['dimension']}"]
         for finding in section['findings']:
             out += ['观察：'+finding['observation'],'推断 / 待验证：'+finding['interpretation'],'引用：'+', '.join(finding['evidence_ids'])]
+    if report.get('comment_analysis'):
+        out+=['## 评论样本分析']
+        for finding in report['comment_analysis']:
+            out += [finding['observation'],finding['interpretation'],'引用：'+', '.join(finding['evidence_ids'])]
+    if report.get('rewrites'):
+        out += ['## 改写框架',report['recommended_framework'],report['framework_reason']]
+        for index,item in enumerate(report['rewrites']):
+            out += [f"## 改写方案 {index+1}：{item['angle']}", '框架：'+item['framework']]
+            for option in item['title_options']:
+                out += ['### '+option['title'],option['reason']]
+            out += [item['body'],'封面文案：'+item['cover_text']]
+            if item.get('hook'):out += ['开头口播：'+item['hook']]
+            out += ['### 分段脚本',*item.get('script',[]),'### 配图或镜头建议',*item['visuals'],
+                    '### 待核实',*item['fact_checks'],'### 修改说明',*item['change_notes'],
+                    '来源：'+', '.join(item['evidence_ids'])]
+    adopted=next((v for v in store.versions(job['id']) if v['adopted']),None)
+    if adopted:
+        out += ['## 当前采用版本',adopted['title'],adopted['content'],'修改反馈：'+adopted['feedback']]
     out+=['## 原创选题与提纲']
     for idea in report['ideas']:
         out += ['### '+idea['title'],*['- '+s for s in idea['outline']],'启发来源：'+', '.join(idea['evidence_ids'])]

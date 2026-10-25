@@ -22,9 +22,21 @@ from database import analytics as schema
 
 def report(evidence):
     refs=[evidence[0]['id']]
+    comments=[e['id'] for e in evidence if e['kind']=='comment']
+    brief=next((json.loads(e['text']) for e in evidence if e['kind']=='brief'),{})
+    framework=brief.get('framework','auto')
+    if framework=='auto':framework='需求解答'
+    rewrite=dict(angle='解答读者疑问',framework=framework,
+        title_options=[dict(title=f'旅行安排方法{i+1}',reason='使用不同切入角度') for i in range(3)],
+        body='先明确旅行需求，再核对路线条件。根据真实资料安排计划，尚未确认的细节留待核实。',
+        hook='先确定你最关心的路线问题。',script=['提出问题','展示安排方法'],cover_text='旅行安排怎么做',
+        visuals=['拍摄实际路线示意，标注待核实信息'],tags=['旅行规划'],fact_checks=['核实实际路线'],
+        change_notes=['将原文整理为问题与回答结构'],evidence_ids=refs)
     return dict(summary='测试摘要',summary_evidence_ids=refs,
         sections=[dict(dimension=dimension,findings=[dict(observation='标题提出问题',interpretation='可能引发好奇，需要验证',evidence_ids=refs)]) for dimension in ['开头与钩子','内容结构','选题与受众','表达与情绪']],
-        ideas=[dict(title='差异化测试选题',outline=['提出一个可验证的问题','展示真实过程'],evidence_ids=refs)],limitations=['没有对照样本'])
+        ideas=[dict(title='差异化测试选题',outline=['提出一个可验证的问题','展示真实过程'],evidence_ids=refs)],limitations=['没有对照样本'],
+        recommended_framework=framework,framework_reason='素材适合回答具体需求',rewrites=[rewrite],
+        comment_analysis=[dict(observation='评论样本询问路线安排',interpretation='改写时补充已有的路线信息',evidence_ids=comments[:1])] if comments else [])
 
 
 @pytest.fixture
@@ -131,7 +143,7 @@ def test_video_upload_chunks_and_graph_retry_reuses_transcript(client,monkeypatc
     assert calls=={'media':1,'asr':1,'model':2}
     assert final['asr_provider']==asr_mode
     assert final['asr_model']==('MOSS-Transcribe-Diarize' if asr_mode=='moss' else 'whisper-1')
-    assert final['evidence'][-1]['start']==0
+    assert next(e for e in final['evidence'] if e['kind']=='transcript')['start']==0
     response=client.get('/api/remix/jobs/'+job['id']+'/video',headers={'Range':'bytes=0-4'})
     assert response.status_code==206 and response.content==body[:5]
     assert response.headers['content-range']==f'bytes 0-4/{len(body)}'

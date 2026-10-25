@@ -33,6 +33,10 @@ def connect():
         db.execute('CREATE INDEX IF NOT EXISTS remix_status ON jobs(status)')
         db.execute('CREATE TABLE IF NOT EXISTS model_cache(key TEXT PRIMARY KEY,body TEXT NOT NULL)')
         db.execute('CREATE TABLE IF NOT EXISTS uploads(id TEXT PRIMARY KEY,actor TEXT,request_key TEXT,filename TEXT,size INTEGER,received INTEGER,sha256 TEXT,created_at TEXT,UNIQUE(actor,request_key))')
+        db.execute('CREATE TABLE IF NOT EXISTS writing_knowledge(id TEXT PRIMARY KEY,updated_at TEXT,body TEXT NOT NULL)')
+        db.execute('CREATE TABLE IF NOT EXISTS writing_knowledge_history(id TEXT,version INTEGER,body TEXT NOT NULL,PRIMARY KEY(id,version))')
+        db.execute('CREATE TABLE IF NOT EXISTS rewrite_versions(id TEXT PRIMARY KEY,job_id TEXT,request_key TEXT,fingerprint TEXT,body TEXT NOT NULL,UNIQUE(job_id,request_key))')
+        db.execute('CREATE INDEX IF NOT EXISTS remix_versions_job ON rewrite_versions(job_id)')
         with db:
             yield db
     finally:
@@ -178,3 +182,48 @@ def cached_report(key):
 def cache_report(key, report, model):
     with connect() as db:
         db.execute('INSERT OR REPLACE INTO model_cache VALUES(?,?)',(key,json.dumps(dict(report=report,model=model),ensure_ascii=False)))
+
+
+def versions(job_id):
+    with connect() as db:
+        rows=db.execute('SELECT body FROM rewrite_versions WHERE job_id=? ORDER BY rowid DESC',(job_id,)).fetchall()
+    return [json.loads(row[0]) for row in rows]
+
+
+def save_version(job_id, payload, actor):
+    job=get(job_id)
+    if not job or not job.get('report') or payload.rewrite_index>=len(job['report'].get('rewrites', [])):
+        raise ValueError('改写成稿不存在，请重新分析旧版任务')
+    if not payload.title.strip() or not payload.content.strip():
+        raise ValueError('成稿标题和正文不能为空')
+    data=payload.model_dump(exclude={'request_key'})
+    digest=hashlib.sha256(json.dumps(data,sort_keys=True).encode()).hexdigest()
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute('SELECT fingerprint,body FROM rewrite_versions WHERE job_id=? AND request_key=?',(job_id,payload.request_key)).fetchone()
+        if row:
+            if row['fingerprint']!=digest:
+                raise ValueError('重复保存键对应的成稿内容不同')
+            return json.loads(row['body'])
+        if db.execute('SELECT count(*) FROM rewrite_versions WHERE job_id=?',(job_id,)).fetchone()[0]>=100:
+            raise ValueError('每个任务最多保留 100 个成稿版本')
+        original=job['report']['rewrites'][payload.rewrite_index]
+        data.update(id=uuid4().hex,job_id=job_id,actor=actor,created_at=now(),adopted=False,
+                    original_title=original['title_options'][payload.title_option]['title'],original_content=original['body'],
+                    framework=original['framework'],tags=original.get('tags',[]))
+        db.execute('INSERT INTO rewrite_versions VALUES(?,?,?,?,?)',(data['id'],job_id,payload.request_key,digest,json.dumps(data,ensure_ascii=False)))
+    return data
+
+
+def adopt_version(job_id, version_id):
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        rows=db.execute('SELECT id,body FROM rewrite_versions WHERE job_id=?',(job_id,)).fetchall()
+        if not any(row['id']==version_id for row in rows):
+            raise ValueError('成稿版本不存在')
+        selected=None
+        for row in rows:
+            data=json.loads(row['body']);data['adopted']=row['id']==version_id
+            if data['adopted']: selected=data
+            db.execute('UPDATE rewrite_versions SET body=? WHERE id=?',(json.dumps(data,ensure_ascii=False),row['id']))
+    return selected

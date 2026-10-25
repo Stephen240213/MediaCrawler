@@ -29,3 +29,11 @@
 .remix-metrics {display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px;background:#faf8fd;border-radius:8px;padding:14px}
 .remix-metrics dt {font-size:12px;color:#8b809e}
 .remix-metrics dd {margin:6px 0 0;overflow-wrap:anywhere;font-size:14px}
+.remix textarea {width:100%;min-width:0;border:1px solid #e5def2;border-radius:8px;padding:11px;background:#fff;color:inherit;font:inherit;resize:vertical;line-height:1.7}
+.remix-form-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+.remix details>label,.remix details>fieldset {margin-top:14px}
+.remix-copy {white-space:pre-wrap;overflow-wrap:anywhere}
+.remix-title-options {display:grid;gap:8px;margin:14px 0}
+.remix-title-options button[aria-pressed=true] {border-color:#b899ee;background:#f6f1ff}
+.remix details+details {margin-top:10px}
+@media(max-width:600px){.remix-form-grid{grid-template-columns:minmax(0,1fr)}}
