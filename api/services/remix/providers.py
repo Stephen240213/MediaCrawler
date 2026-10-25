@@ -13,7 +13,7 @@ import httpx
 from .schemas import AnalysisReport
 from . import moss
 
-PROMPT_VERSION = 'remix-phase1-v2-comments-creation'
+PROMPT_VERSION = 'remix-phase1-v3-profiles-topics'
 MAX_SECONDS = 15*60
 MAX_SOURCE_CHARS = 30000
 MAX_SEGMENTS = 600
@@ -245,7 +245,7 @@ async def analyze(evidence):
 先读取 source_context 和 coverage：平台、作者、发布时间、互动数据若存在，不得再说缺失。null 是未知，0 是已知零值。用户上传素材的原发布平台未知。supplement 是用户提供、未独立核实的补充材料。brief 仅是创作需求，writing_preference 仅是用户确认的表达偏好，不是房源、产品或经历的事实来源。
 sections 分析开头与钩子、内容结构、选题与受众、表达与情绪，分别说清有效表达、理解障碍和如何改。observation 写观察，interpretation 写待验证解释。没有画面就不能声称看到了图片或房源实况。单条内容不能证明爆款因果，不给爆款概率，不虚构价格优势或个人体验。月均租金与年租年付并非天然矛盾，应区分单价、租期和支付方式。
 comment_analysis 只分析 kind=comment 的样本，evidence_ids 必须全部是评论引用。归纳咨询需求、顾虑、误解和可用于改写的回应方向；评论者的陈述不是已证实事实。不把样本等同全部观众，不推断人口画像、整体情绪比例或传播因果，不把点赞数当播放量。没有样本就返回空列表。样本覆盖范围由 coverage 展示，limitations 不再重复列举。
-按 brief 中的平台、受众、目标、语气、保留事实与禁用表达改写。framework 为 auto 时从四类框架选最合适的，解释 recommended_framework 与 framework_reason；用户选了具体框架时所有改写稿必须使用该框架。
+account_profile 是用户确认的账号定位与风格，不是素材事实或真实观众画像；以当前 brief 的明确要求为准。comment_topics 是代码对本次样本的多标签关键词计数，不能当作情绪或全部观众统计。按 brief 中的平台、受众、目标、语气、保留事实与禁用表达改写。framework 为 auto 时从四类框架选最合适的，解释 recommended_framework 与 framework_reason；用户选了具体框架时所有改写稿必须使用该框架。
 四类结构：需求解答=问题→直接回答→证据细节→使用条件→行动建议；决策对比=选择困境→比较维度→已知优缺点→适合谁→结论；真实经历=真实场景→问题→已有过程→已有结果→经验；信息筛选=核心条件→亮点→限制→费用门槛→下一步。缺少第一手经历不得编造亲历，真实经历框架可写来源记录的经历或明确的待填写结构。
 生成两篇不同角度的 rewrites（每篇正文建议400–800字，素材不足则更短，不能凑字编造），每篇含三个不同角度的 title_options 及区别理由、完整 body、cover_text、visuals 拍摄或配图建议、tags、fact_checks 待核实项、change_notes 修改说明、来源 evidence_ids。视频模式额外给 hook 开头口播和 script 分段脚本，图文可留空。正文直接可编辑使用，未知必要事实省略或明确留作待补充，不能伪装已核实。视觉建议属于待拍摄方案，不能冒充现有画面。保留 ideas 作为差异化选题和提纲。
 limitations 最多三条，只列影响判断的具体缺口及补充办法，避免重复免责声明和交易清单式跑题；已有信息不能列为缺失。相同意思只写一次。'''

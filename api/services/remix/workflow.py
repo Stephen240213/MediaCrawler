@@ -13,7 +13,7 @@ from langsmith import tracing_context
 from api.services import analytics
 from api.services.lease import Lease
 from media_downloader.paths import build_media_dir
-from . import store, providers, context
+from . import store, providers, context, topics
 from .providers import AnalysisError
 
 
@@ -144,7 +144,7 @@ def build_evidence(source, transcript):
 async def evidence_node(state):
     job=store.get(state['job_id']);stage(job['id'],'evidence')
     evidence=build_evidence(job['source'],state.get('transcript',[]))
-    store.update(job['id'],evidence=evidence,transcript=state.get('transcript',[]),duration=state.get('duration'))
+    store.update(job['id'],evidence=evidence,comment_topics=topics.build(evidence),transcript=state.get('transcript',[]),duration=state.get('duration'))
     return {'evidence':evidence}
 
 
@@ -288,6 +288,13 @@ def markdown(job):
     if not job.get('report'):
         raise AnalysisError('报告尚未完成')
     report=job['report'];out=[f"# {job['title']}",report['summary'], '引用：'+', '.join(report['summary_evidence_ids'])]
+    profile=(job.get('source')or{}).get('profile')
+    if profile:out += ['账号画像：'+profile['name']+' · v'+str(profile['version'])+'（任务快照）']
+    topic_table=job.get('comment_topics')
+    if topic_table and topic_table['sample_size']:
+        out += ['## 评论议题表',topic_table['scope']]
+        for group in topic_table['groups']:
+            out += [group['topic']+'：'+str(group['count'])+' 条；'+group['rewrite_action'],'引用：'+', '.join(group['evidence_ids'])]
     if job.get('source',{}).get('url'):
         out += ['原始内容：'+job['source']['url']]
     for section in report['sections']:

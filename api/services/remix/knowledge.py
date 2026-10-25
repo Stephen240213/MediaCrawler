@@ -2,7 +2,7 @@
 import json
 from uuid import uuid4
 
-from . import store
+from . import store, profiles
 
 
 def listing(page=1):
@@ -14,6 +14,8 @@ def listing(page=1):
 
 def save(payload, actor, entry_id=None):
     data = payload.model_dump()
+    if data['profile_id'] and not profiles.get(data['profile_id']):
+        raise ValueError('经验所属画像不存在')
     if not data['title'].strip() or not data['content'].strip():
         raise ValueError('经验标题和内容不能为空')
     if data['source_version_id'] and not data['source_job_id']:
@@ -59,7 +61,7 @@ def history(entry_id):
     return [json.loads(row[0]) for row in rows]
 
 
-def relevant(brief):
+def relevant(brief, profile_id='', include_global=False):
     """Exact platform and topic scoping; general preferences are also eligible."""
     with store.connect() as db:
         rows = db.execute('SELECT body FROM writing_knowledge ORDER BY updated_at DESC,id LIMIT 1000').fetchall()
@@ -67,6 +69,9 @@ def relevant(brief):
     topic = brief.get('topic', '').strip().casefold()
     for row in rows:
         item = json.loads(row[0])
+        owner=item.get('profile_id','')
+        if owner!=profile_id and not (profile_id and include_global and not owner):
+            continue
         if not item['enabled'] or item['platform'] not in ('all', brief.get('platform', 'xhs')):
             continue
         scope = item['topic'].strip().casefold()
@@ -74,5 +79,5 @@ def relevant(brief):
             continue
         eligible.append((bool(scope), item['platform']!='all', item))
     eligible.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    return [{k:item[k] for k in ('id', 'version', 'kind', 'title', 'content', 'platform', 'topic')}
+    return [{**{k:item[k] for k in ('id', 'version', 'kind', 'title', 'content', 'platform', 'topic')},'profile_id':item.get('profile_id','')}
             for _, _, item in eligible[:6]]

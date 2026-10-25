@@ -8,8 +8,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse, RedirectResponse
 
 from api.services import analytics, workbench_store
-from api.services.remix import providers, store, workflow, knowledge, source_links
-from api.services.remix.schemas import JobInput, UploadInput, KnowledgeInput, VersionInput
+from api.services.remix import providers, store, workflow, knowledge, source_links, profiles, publications
+from api.services.remix.schemas import JobInput, UploadInput, KnowledgeInput, VersionInput, ProfileInput, PublicationInput, ObservationInput
 
 router=APIRouter(prefix='/remix',tags=['ContentRemixAgent'])
 
@@ -269,8 +269,77 @@ def adopt_version(job_id: str, version_id: str):
         row=db.execute("SELECT body FROM documents WHERE kind='draft' AND id=?",(draft_id,)).fetchone()
         if row:
             return dict(version=version,draft=json.loads(row[0]))
-        platform=job['input'].get('brief',{}).get('platform','xhs')
+        platform=(job.get('source',{}).get('creative_brief') or job['input'].get('brief',{})).get('platform','xhs')
         draft=dict(id=draft_id,title=version['title'],content=version['content'],tags=version['tags'],
                    images=[],platform=platform,version=1,updated_at=store.now())
         db.execute('INSERT INTO documents VALUES(?,?,?)',('draft',draft_id,json.dumps(draft,ensure_ascii=False)))
     return dict(version=version,draft=draft)
+
+
+@router.get('/profiles')
+def list_profiles():
+    return profiles.listing()
+
+
+@router.post('/profiles')
+def create_profile(payload: ProfileInput, request: Request):
+    try:return profiles.save(payload,actor(request))
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.put('/profiles/{profile_id}')
+def update_profile(profile_id: str, payload: ProfileInput, request: Request):
+    try:return profiles.save(payload,actor(request),identifier(profile_id))
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/profiles/{profile_id}/history')
+def profile_history(profile_id: str):
+    return profiles.history(identifier(profile_id))
+
+
+@router.get('/jobs/{job_id}/comment-topics')
+def comment_topics(job_id: str):
+    job=job_or_404(job_id)
+    if job.get('comment_topics'):return job['comment_topics']
+    from api.services.remix import topics
+    return {**topics.build(job.get('evidence',[])),'historical_recalculation':True}
+
+
+@router.get('/jobs/{job_id}/publications')
+def job_publications(job_id: str):
+    job_or_404(job_id)
+    return publications.listing(job_id)
+
+
+@router.post('/jobs/{job_id}/publications')
+def create_publication(job_id: str, payload: PublicationInput, request: Request):
+    job_or_404(job_id)
+    try:return publications.save(job_id,payload,actor(request))
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.put('/publications/{publication_id}')
+def update_publication(publication_id: str, payload: PublicationInput, request: Request):
+    record=publications.get(identifier(publication_id))
+    if not record:raise HTTPException(404,'发布记录不存在')
+    try:return publications.save(record['job_id'],payload,actor(request),publication_id)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/publications/{publication_id}/observations')
+def publication_observations(publication_id: str):
+    if not publications.get(identifier(publication_id)):raise HTTPException(404,'发布记录不存在')
+    return publications.observations(publication_id)
+
+
+@router.post('/publications/{publication_id}/observations')
+def add_observation(publication_id: str, payload: ObservationInput, request: Request):
+    try:return publications.observe(identifier(publication_id),payload,actor(request))
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/publications/{publication_id}/review')
+def publication_review(publication_id: str, metric: str=Query('favorites',max_length=30), window_hours: int=Query(72,ge=1,le=2160), tolerance_hours: int=Query(24,ge=0,le=168)):
+    try:return publications.review(identifier(publication_id),metric,window_hours,tolerance_hours)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc

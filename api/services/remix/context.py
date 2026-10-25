@@ -1,7 +1,7 @@
 """Frozen, bounded source and comment evidence; all reads stay on the collection Mac."""
 import json
 
-from . import knowledge
+from . import knowledge, profiles, topics
 
 MAX_COMMENTS = 80
 MAX_COMMENT_CHARS = 8000
@@ -15,7 +15,12 @@ def saved_comments(db, content_id):
 
 def snapshot(source, payload, comments=(), saved_total=0):
     brief = payload.brief.model_dump()
-    source.update(creative_brief=brief, knowledge=knowledge.relevant(brief), comment_samples=[],
+    profile=profiles.snapshot(payload.profile_id)
+    if profile:
+        for key in ('audience','tone','topic','avoid'):
+            if not brief[key]:brief[key]=profile[key]
+        if 'platform' not in payload.brief.model_fields_set:brief['platform']=profile['platform']
+    source.update(profile=profile,creative_brief=brief, knowledge=knowledge.relevant(brief,payload.profile_id,payload.include_global_knowledge), comment_samples=[],
                   comment_context=dict(enabled=payload.include_comments, saved_total=saved_total,
                                        policy='补充评论优先，已保存评论按时间倒序取前160条候选，去重后最多80条。每条最多500字，总计8000字。'))
     if not payload.include_comments:
@@ -60,17 +65,18 @@ def build_evidence(source, transcript):
     if supplemental:
         append('supplement',supplemental,origin='user_provided')
     append('brief', json.dumps(brief,ensure_ascii=False))
+    if source.get('profile'):append('account_profile',json.dumps(source['profile'],ensure_ascii=False))
     used = []
     # Preferences guide expression; they are never source facts.
     for entry in source.get('knowledge',[]):
         snapshot = {**entry,'content':entry['content'][:800]}
         if append('writing_preference',json.dumps(snapshot,ensure_ascii=False)):
-            used.append(dict(id=entry['id'],version=entry['version'],title=entry['title']))
+            used.append(dict(id=entry['id'],version=entry['version'],title=entry['title'],profile_id=entry.get('profile_id','')))
     samples = source.get('comment_samples',[])
     comment_reserve = min(sum(len(c['text']) for c in samples), 8000, max(0,limit//3))
     body = source.get('body','')
     speech_chars = sum(len(s['text']) for s in transcript)
-    source_budget = max(0,limit-comment_reserve-3000)
+    source_budget = max(0,limit-comment_reserve-6000)
     body_budget = min(len(body),source_budget//2 if transcript else source_budget)
     body_excerpt = body[:body_budget]
     for start in range(0,len(body_excerpt),600):
@@ -82,9 +88,12 @@ def build_evidence(source, transcript):
         append('comment',sample['text'],comment_id=sample['comment_id'],origin=sample['origin'],truncated=sample['truncated'])
         comment_reserve -= len(sample['text'])
         comment_used += 1
+    topic_table=topics.build(evidence)
+    if topic_table['sample_size']:
+        append('comment_topics',json.dumps(dict(rule_version=topic_table['rule_version'],sample_size=topic_table['sample_size'],multi_label=True,groups=[dict(topic=g['topic'],count=g['count'],evidence_ids=g['evidence_ids'][:4]) for g in topic_table['groups']]),ensure_ascii=False))
     speech_used = 0
     for segment in transcript:
-        if len(segment['text'])>limit-3000:
+        if len(segment['text'])>limit-6000:
             break
         append('transcript',segment['text'],start=segment['start'],end=segment['end'])
         speech_used += len(segment['text'])
@@ -92,6 +101,7 @@ def build_evidence(source, transcript):
         source_body_previously_truncated=source.get('truncated',False),
         transcript_chars=speech_used,transcript_original_chars=speech_chars,
         comments={**source.get('comment_context',{}),'included':comment_used},used_knowledge=used,
+        profile=({k:source['profile'][k] for k in ('id','version','name')} if source.get('profile') else None),
         visual_analysis=False)
     if not append('coverage',json.dumps(coverage,ensure_ascii=False)):
         raise ValueError('分析范围说明超过输入预算，请精简创作需求或写作经验')

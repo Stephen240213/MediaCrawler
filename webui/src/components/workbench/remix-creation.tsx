@@ -2,6 +2,7 @@ import {useEffect, useRef, useState} from 'react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
 import api from '@/lib/api'
 import {errorMessage} from '@/lib/workbench'
+import {useCreatorProfiles} from './remix-learning'
 
 export type Brief = {platform:string;content_type:string;audience:string;objective:string;topic:string;framework:string;tone:string;must_keep:string;avoid:string;supplemental:string}
 export const defaultBrief: Brief = {platform:'xhs',content_type:'图文',audience:'',objective:'分享',topic:'',framework:'auto',tone:'',must_keep:'',avoid:'',supplemental:''}
@@ -9,8 +10,8 @@ export const frameworks = ['需求解答','决策对比','真实经历','信息�
 export type Rewrite = {angle:string;framework:string;title_options:{title:string;reason:string}[];body:string;hook:string;script:string[];cover_text:string;visuals:string[];tags:string[];fact_checks:string[];change_notes:string[];evidence_ids:string[]}
 type Version = {id:string;rewrite_index:number;title:string;content:string;feedback:string;adopted:boolean;created_at:string;original_title:string;original_content:string}
 type Evidence = {id:string;kind:string;text:string}
-type Entry = {id?:string;kind:string;title:string;content:string;platform:string;topic:string;reason:string;enabled:boolean;version:number;source_job_id:string;source_version_id:string}
-const emptyEntry:Entry={kind:'preference',title:'',content:'',platform:'all',topic:'',reason:'',enabled:true,version:1,source_job_id:'',source_version_id:''}
+type Entry = {profile_id?:string;id?:string;kind:string;title:string;content:string;platform:string;topic:string;reason:string;enabled:boolean;version:number;source_job_id:string;source_version_id:string}
+const emptyEntry:Entry={profile_id:'',kind:'preference',title:'',content:'',platform:'all',topic:'',reason:'',enabled:true,version:1,source_job_id:'',source_version_id:''}
 const platformNames:Record<string,string>={all:'全部平台',xhs:'小红书',douyin:'抖音',bilibili:'哔哩哔哩',other:'其他'}
 
 export function BriefForm({value,onChange}:{value:Brief;onChange:(value:Brief)=>void}) {
@@ -32,16 +33,16 @@ export function EvidenceCoverage({evidence}:{evidence:Evidence[]}) {
   const entry=evidence.find(e=>e.kind==='coverage')
   if(!entry)return <p className="wb-hint">历史报告使用旧版输入，重新提交素材可生成含评论和完整改写的新报告。</p>
   try {
-    const coverage=JSON.parse(entry.text) as {body_chars:number;body_original_chars:number;source_body_previously_truncated:boolean;transcript_chars:number;transcript_original_chars:number;comments:{enabled?:boolean;saved_total?:number;manual_submitted?:number;sampled?:number;included?:number;policy?:string};used_knowledge:{id:string;version:number;title:string}[]}
+    const coverage=JSON.parse(entry.text) as {body_chars:number;body_original_chars:number;source_body_previously_truncated:boolean;transcript_chars:number;transcript_original_chars:number;comments:{enabled?:boolean;saved_total?:number;manual_submitted?:number;sampled?:number;included?:number;policy?:string};used_knowledge:{id:string;version:number;title:string;profile_id?:string}[]}
     const c=coverage.comments
     return <details><summary>本次分析范围与写作经验</summary><p>正文 {coverage.body_chars}/{coverage.body_original_chars} 字 · 语音 {coverage.transcript_chars}/{coverage.transcript_original_chars} 字{coverage.source_body_previously_truncated?' · 原始正文已截断':''}。本次未分析封面和画面。</p>
       <p>{c.enabled?`评论：本机已保存 ${c.saved_total??0} 条，手动补充 ${c.manual_submitted??0} 条，取样去重后本次纳入 ${c.included??0} 条。`:'未启用评论分析。'}评论样本仅代表本次纳入内容；互动计数的“评论数”不等于已保存评论数。</p>{c.enabled&&<p>{c.policy}</p>}
-      {coverage.used_knowledge.length?<><p>本次复用了以下确认过的经验，后续修改经验不会改变本次快照：</p><ul>{coverage.used_knowledge.map(k=><li key={k.id}>{k.title} · v{k.version}</li>)}</ul></>:<p>本次没有匹配的写作经验。可在经验库保存通用偏好，或使用相同平台与题材标签。</p>}
+      {coverage.used_knowledge.length?<><p>本次复用了以下确认过的经验，后续修改经验不会改变本次快照：</p><ul>{coverage.used_knowledge.map(k=><li key={k.id}>{k.title} · v{k.version} · {k.profile_id?'账号经验':'通用经验'}</li>)}</ul></>:<p>本次没有匹配的写作经验。可在经验库保存通用偏好，或使用相同平台与题材标签。</p>}
     </details>
   }catch{return null}
 }
 
-export function RewriteResults({jobId,rewrites,framework,reason,writable,brief,onCite}:{jobId:string;rewrites:Rewrite[];framework:string;reason:string;writable:boolean;brief?:Partial<Brief>;onCite:(ids:string[])=>React.ReactNode}) {
+export function RewriteResults({jobId,rewrites,framework,reason,writable,brief,profileId='',onCite}:{jobId:string;rewrites:Rewrite[];framework:string;reason:string;writable:boolean;brief?:Partial<Brief>;profileId?:string;onCite:(ids:string[])=>React.ReactNode}) {
   const cache=useQueryClient()
   const [index,setIndex]=useState(0);const [titleIndex,setTitleIndex]=useState(0)
   const [title,setTitle]=useState('');const [content,setContent]=useState('');const [feedback,setFeedback]=useState('')
@@ -61,7 +62,7 @@ export function RewriteResults({jobId,rewrites,framework,reason,writable,brief,o
   })
   const adopt=(v:Version)=>run(async()=>{await api.post(`/remix/jobs/${jobId}/versions/${v.id}/adopt`);await cache.invalidateQueries({queryKey:['remix-versions',jobId]});await cache.invalidateQueries({queryKey:['workbenchDrafts']});setNotice('已采用此版本并保存到草稿。重复采用不会覆盖草稿中的人工编辑。')})
   const learn=(v:Version)=>run(async()=>{
-    await api.post('/remix/knowledge',{...emptyEntry,kind:'edit',title:('修改经验：'+v.title).slice(0,100),content:v.feedback,platform:brief?.platform||'xhs',topic:brief?.topic||'',source_job_id:jobId,source_version_id:v.id})
+    await api.post('/remix/knowledge',{...emptyEntry,kind:'edit',title:('修改经验：'+v.title).slice(0,100),content:v.feedback,platform:brief?.platform||'xhs',topic:brief?.topic||'',profile_id:profileId,source_job_id:jobId,source_version_id:v.id})
     await cache.invalidateQueries({queryKey:['remix-knowledge']});setNotice('已将你的修改反馈确认为经验；可在写作经验库编辑、停用或删除。')
   })
   if(!rewrite)return null
@@ -87,31 +88,32 @@ export function RewriteResults({jobId,rewrites,framework,reason,writable,brief,o
   </section>
 }
 
-export function KnowledgePanel({writable}:{writable:boolean}) {
-  const cache=useQueryClient();const [page,setPage]=useState(1)
+export function KnowledgePanel({writable,profileId=''}:{writable:boolean;profileId?:string}) {
+  const cache=useQueryClient();const profiles=useCreatorProfiles();const [page,setPage]=useState(1)
   const [entry,setEntry]=useState<Entry>({...emptyEntry});const [notice,setNotice]=useState('');const [busy,setBusy]=useState(false)
   const [history,setHistory]=useState<Entry[]>([])
   const entries=useQuery({queryKey:['remix-knowledge',page],queryFn:async()=>(await api.get<{items:Entry[];total:number}>('/remix/knowledge',{params:{page}})).data})
   const mutate=async(action:()=>Promise<unknown>)=>{setBusy(true);setNotice('');try{await action();await cache.invalidateQueries({queryKey:['remix-knowledge']});setNotice('经验库已更新；新任务会按平台、题材使用已启用的经验。')}catch(e){setNotice(errorMessage(e))}finally{setBusy(false)}}
-  const payload=(e:Entry)=>({kind:e.kind,title:e.title,content:e.content,platform:e.platform,topic:e.topic,reason:e.reason,enabled:e.enabled,version:e.version,source_job_id:e.source_job_id,source_version_id:e.source_version_id})
-  const edit=(e:Entry)=>{setEntry({id:e.id,kind:e.kind,title:e.title,content:e.content,platform:e.platform,topic:e.topic,reason:e.reason,enabled:e.enabled,version:e.version,source_job_id:e.source_job_id,source_version_id:e.source_version_id});setHistory([])}
-  const save=()=>mutate(async()=>{if(entry.id)await api.put('/remix/knowledge/'+entry.id,payload(entry));else await api.post('/remix/knowledge',payload(entry));setEntry({...emptyEntry});setHistory([])})
+  useEffect(()=>{setEntry({...emptyEntry,profile_id:profileId});setHistory([])},[profileId])
+  const payload=(e:Entry)=>({profile_id:e.profile_id||'',kind:e.kind,title:e.title,content:e.content,platform:e.platform,topic:e.topic,reason:e.reason,enabled:e.enabled,version:e.version,source_job_id:e.source_job_id,source_version_id:e.source_version_id})
+  const edit=(e:Entry)=>{setEntry({profile_id:e.profile_id||'',id:e.id,kind:e.kind,title:e.title,content:e.content,platform:e.platform,topic:e.topic,reason:e.reason,enabled:e.enabled,version:e.version,source_job_id:e.source_job_id,source_version_id:e.source_version_id});setHistory([])}
+  const save=()=>mutate(async()=>{if(entry.id)await api.put('/remix/knowledge/'+entry.id,payload(entry));else await api.post('/remix/knowledge',payload(entry));setEntry({...emptyEntry,profile_id:profileId});setHistory([])})
   return <section className="wb-card remix-card"><details><summary>写作经验库 · 偏好、修改经验与确认规则</summary><p>仅复用你确认并启用的经验，优先匹配平台及相同题材标签，每次最多六条、每条最多800字。单次反馈不会自动升级为通用规则。</p>
-    <fieldset disabled={!writable||busy}><div className="remix-form-grid"><label>经验类型<select aria-label="经验类型" value={entry.kind} onChange={e=>setEntry({...entry,kind:e.target.value})}><option value="preference">个人偏好</option><option value="edit">修改经验</option><option value="rule">确认的写作规则</option></select></label>
+    <fieldset disabled={!writable||busy}><label>经验账号作用域<select aria-label="经验账号作用域" value={entry.profile_id||''} onChange={e=>setEntry({...entry,profile_id:e.target.value})}><option value="">通用经验（仅在选择通用或主动允许时使用）</option>{profiles.data?.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><div className="remix-form-grid"><label>经验类型<select aria-label="经验类型" value={entry.kind} onChange={e=>setEntry({...entry,kind:e.target.value})}><option value="preference">个人偏好</option><option value="edit">修改经验</option><option value="rule">确认的写作规则</option></select></label>
       <label>适用平台<select aria-label="适用平台" value={entry.platform} onChange={e=>setEntry({...entry,platform:e.target.value})}>{Object.entries(platformNames).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>
       <label>适用题材<input maxLength={100} value={entry.topic} placeholder="留空表示通用；填写后仅匹配相同标签" onChange={e=>setEntry({...entry,topic:e.target.value})}/></label>
       <label>经验标题<input maxLength={100} value={entry.title} onChange={e=>setEntry({...entry,title:e.target.value})}/></label></div>
       <label>经验内容<textarea aria-label="经验内容" rows={3} maxLength={2000} value={entry.content} onChange={e=>setEntry({...entry,content:e.target.value})}/></label>
       <label>确认理由<input maxLength={500} value={entry.reason} onChange={e=>setEntry({...entry,reason:e.target.value})}/></label>
       <label className="remix-check"><input type="checkbox" checked={entry.enabled} onChange={e=>setEntry({...entry,enabled:e.target.checked})}/>启用，允许后续分析复用</label>
-      <div className="an-actions"><button className="wb-button" disabled={!entry.title.trim()||!entry.content.trim()} onClick={()=>void save()}>{entry.id?'确认修改经验':'确认并保存经验'}</button>{entry.id&&<button className="wb-button" onClick={()=>{setEntry({...emptyEntry});setHistory([])}}>取消编辑</button>}</div>
+      <div className="an-actions"><button className="wb-button" disabled={!entry.title.trim()||!entry.content.trim()} onClick={()=>void save()}>{entry.id?'确认修改经验':'确认并保存经验'}</button>{entry.id&&<button className="wb-button" onClick={()=>{setEntry({...emptyEntry,profile_id:profileId});setHistory([])}}>取消编辑</button>}</div>
     </fieldset>
     {entries.isLoading&&<p role="status">正在读取经验库…</p>}{entries.isError&&<p role="alert">经验库读取失败。<button className="wb-button" onClick={()=>void entries.refetch()}>重试经验库</button></p>}
-    {entries.data?.items.map(e=><div key={e.id} className="remix-section"><h4>{e.title} · v{e.version} · {e.enabled?'启用':'停用'}</h4><p className="remix-copy">{e.content}</p><p className="wb-hint">{platformNames[e.platform]} · {e.topic||'通用题材'} · {e.kind==='rule'?'确认规则':e.kind==='edit'?'修改经验':'个人偏好'}{e.source_job_id?' · 有来源任务':''}</p>
+    {entries.data?.items.map(e=><div key={e.id} className="remix-section"><h4>{e.title} · v{e.version} · {e.enabled?'启用':'停用'}</h4><p className="remix-copy">{e.content}</p><p className="wb-hint">{e.profile_id?(profiles.data?.find(p=>p.id===e.profile_id)?.name||'关联账号'):'通用经验'} · {platformNames[e.platform]} · {e.topic||'通用题材'} · {e.kind==='rule'?'确认规则':e.kind==='edit'?'修改经验':'个人偏好'}{e.source_job_id?' · 有来源任务':''}</p>
       <div className="an-actions"><button className="wb-button" disabled={!writable||busy} onClick={()=>edit(e)}>编辑经验</button>
-        <button className="wb-button" disabled={!writable||busy} onClick={()=>void mutate(async()=>{await api.put('/remix/knowledge/'+e.id,{...payload(e),enabled:!e.enabled});if(entry.id===e.id)setEntry({...emptyEntry})})}>{e.enabled?'停用经验':'启用经验'}</button>
+        <button className="wb-button" disabled={!writable||busy} onClick={()=>void mutate(async()=>{await api.put('/remix/knowledge/'+e.id,{...payload(e),enabled:!e.enabled});if(entry.id===e.id)setEntry({...emptyEntry,profile_id:profileId})})}>{e.enabled?'停用经验':'启用经验'}</button>
         <button className="wb-button" disabled={busy} onClick={()=>void (async()=>{try{setHistory((await api.get<Entry[]>(`/remix/knowledge/${e.id}/history`)).data)}catch(err){setNotice(errorMessage(err))}})()}>查看经验历史</button>
-        <button className="wb-button" disabled={!writable||busy} onClick={()=>void mutate(async()=>{await api.delete('/remix/knowledge/'+e.id);if(entry.id===e.id)setEntry({...emptyEntry});setHistory([])})}>删除经验</button></div>
+        <button className="wb-button" disabled={!writable||busy} onClick={()=>void mutate(async()=>{await api.delete('/remix/knowledge/'+e.id);if(entry.id===e.id)setEntry({...emptyEntry,profile_id:profileId});setHistory([])})}>删除经验</button></div>
     </div>)}
     {entries.data&&!entries.data.items.length&&<p>还没有写作经验。可以先保存语气、禁用表达等个人偏好。</p>}
     {!!history.length&&<details open><summary>经验版本历史</summary>{history.map(e=><p key={e.version}>v{e.version} · {e.title}：{e.content}</p>)}</details>}

@@ -37,6 +37,10 @@ def connect():
         db.execute('CREATE TABLE IF NOT EXISTS writing_knowledge_history(id TEXT,version INTEGER,body TEXT NOT NULL,PRIMARY KEY(id,version))')
         db.execute('CREATE TABLE IF NOT EXISTS rewrite_versions(id TEXT PRIMARY KEY,job_id TEXT,request_key TEXT,fingerprint TEXT,body TEXT NOT NULL,UNIQUE(job_id,request_key))')
         db.execute('CREATE INDEX IF NOT EXISTS remix_versions_job ON rewrite_versions(job_id)')
+        db.execute('CREATE TABLE IF NOT EXISTS creator_profiles(id TEXT PRIMARY KEY,body TEXT NOT NULL)')
+        db.execute('CREATE TABLE IF NOT EXISTS creator_profile_history(id TEXT,version INTEGER,body TEXT NOT NULL,PRIMARY KEY(id,version))')
+        db.execute('CREATE TABLE IF NOT EXISTS publications(id TEXT PRIMARY KEY,job_id TEXT,body TEXT NOT NULL)')
+        db.execute('CREATE TABLE IF NOT EXISTS publication_observations(id TEXT PRIMARY KEY,publication_id TEXT,request_key TEXT,fingerprint TEXT,body TEXT NOT NULL,UNIQUE(publication_id,request_key))')
         with db:
             yield db
     finally:

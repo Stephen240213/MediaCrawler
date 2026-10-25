@@ -37,3 +37,7 @@
 .remix-title-options button[aria-pressed=true] {border-color:#b899ee;background:#f6f1ff}
 .remix details+details {margin-top:10px}
 @media(max-width:600px){.remix-form-grid{grid-template-columns:minmax(0,1fr)}}
+.remix-table {max-width:100%;overflow-x:auto;margin:14px 0}
+.remix-table table {border-collapse:collapse;width:100%;min-width:540px;text-align:left;font-size:13px}
+.remix-table th,.remix-table td {border-bottom:1px solid #e9e2f3;padding:12px;vertical-align:top;line-height:1.7}
+.remix-table th {background:#faf8fd}

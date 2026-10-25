@@ -24,6 +24,8 @@ class CreativeBrief(StrictModel):
 
 
 class JobInput(StrictModel):
+    profile_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$')
+    include_global_knowledge: bool = False
     source: Literal['xhs', 'upload']
     content_id: str = Field(default='', max_length=200)
     upload_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$', max_length=32)
@@ -89,6 +91,7 @@ class VersionInput(StrictModel):
 
 
 class KnowledgeInput(StrictModel):
+    profile_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$')
     kind: Literal['preference', 'edit', 'rule'] = 'preference'
     title: str = Field(min_length=1, max_length=100)
     content: str = Field(min_length=1, max_length=2000)
@@ -113,3 +116,41 @@ class AnalysisReport(StrictModel):
     framework_reason: str = Field(default='', max_length=1000)
     comment_analysis: list[Finding] = Field(default_factory=list, max_length=5)
     rewrites: list[Rewrite] = Field(default_factory=list, max_length=3)
+
+
+class ProfileInput(StrictModel):
+    name: str = Field(min_length=1, max_length=100)
+    platform: Platform = 'xhs'
+    positioning: str = Field(default='', max_length=1000)
+    audience: str = Field(default='', max_length=300)
+    tone: str = Field(default='', max_length=300)
+    topic: str = Field(default='', max_length=100)
+    avoid: str = Field(default='', max_length=500)
+    principles: str = Field(default='', max_length=1000)
+    enabled: bool = True
+    version: int = Field(default=1, ge=1)
+
+
+class PublicationInput(StrictModel):
+    profile_id: str | None = Field(default=None, pattern=r'^([a-f0-9]{32})?$')
+    version_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+    url: str = Field(min_length=1, max_length=2000)
+    published_at: str = Field(min_length=1, max_length=50)
+    content_type: Literal['图文', '视频'] = '图文'
+    topic: str = Field(default='', max_length=100)
+    notes: str = Field(default='', max_length=1500)
+    version: int = Field(default=1, ge=1)
+
+
+class ObservationInput(StrictModel):
+    observed_at: str = Field(min_length=1, max_length=50)
+    views: int | None = Field(default=None, ge=0, le=10**12, strict=True)
+    likes: int | None = Field(default=None, ge=0, le=10**12, strict=True)
+    favorites: int | None = Field(default=None, ge=0, le=10**12, strict=True)
+    comments: int | None = Field(default=None, ge=0, le=10**12, strict=True)
+    shares: int | None = Field(default=None, ge=0, le=10**12, strict=True)
+    inquiries: int | None = Field(default=None, ge=0, le=10**12, strict=True)
+    conversions: int | None = Field(default=None, ge=0, le=10**12, strict=True)
+    promoted: bool | None = None
+    notes: str = Field(default='', max_length=1000)
+    request_key: str = Field(pattern=r'^[a-zA-Z0-9_-]{16,128}$')
