@@ -1,124 +1,145 @@
-# ContentRemixAgent — Phase 1
+# ContentRemixAgent — 第一阶段部署与使用说明
 
-## What is implemented
+## 已实现的功能
 
-The workbench navigation now includes **AI 内容分析 / ContentRemixAgent**. The first release supports:
+工作台导航新增 **AI 内容分析 / ContentRemixAgent**。第一版支持：
 
-- Selecting an existing Xiaohongshu record from the collection SQLite database, with search and pagination. Native note text is read when available; normalized imports may contain only a title. No new platform collection is automatically started.
-- Optional video analysis when the selected note already has downloaded local media. Otherwise, use text-only analysis or upload the video. The existing one-click ZIP download is a browser export and does not automatically import its contents back into this module.
-- MP4, MOV, WebM and M4V uploads, limited to 200 MiB and 15 minutes. Uploads use 4 MiB sequential chunks, so they fit the existing 16 MiB Access/Worker request boundary. Duplicate chunks and requests are checked; interrupted uploads can resume while the same file remains selected. A page refresh requires selecting and uploading again. Whole-file SHA256 is recorded on completion.
-- Audio extraction using FFmpeg; timestamped transcription through local whisper.cpp or an OpenAI-compatible cloud transcription endpoint.
-- A real LangGraph workflow: media → transcription → evidence → analysis → validation. AsyncSqliteSaver persists node checkpoints. Only one analysis runs at a time; at most five jobs may be queued/running.
-- Structured Chinese reports with an evidence-linked summary, opening/hook, structure, topic/audience, expression/emotion, differentiated original ideas, limitations and model/prompt provenance.
-- Clickable original evidence, timestamped transcript inspection, authenticated video playback and byte-range seeking, Markdown export, and idempotent saving of an idea outline to existing drafts. Saving again never overwrites a draft edited by the user.
-- Persistent job status, cancellation, manual retry and restart recovery. Closing/reloading the browser does not cancel an accepted job. On service restart, queued/running jobs are marked interrupted; they do not restart without a user action.
+- 从采集 SQLite 数据库中选择已有小红书内容，支持搜索和分页。存在原始笔记正文时会读取正文；只导入分析字段的记录可能仅有标题。不会自动启动新的平台采集。
+- 所选笔记已有本机视频时，可同时分析视频语音；没有视频时，可选择仅分析正文，或直接上传视频。现有“一键下载”是向浏览器导出 ZIP，不会自动把包内文件导入本模块。
+- 上传 MP4、MOV、WebM、M4V 视频，单文件最多 200 MiB、15 分钟。上传采用每块 4 MiB 的顺序分块，兼容现有 Access / Worker 每次请求 16 MiB 的限制。系统会校验重复分块和重复请求；同一文件仍保持选中时，可以恢复中断的上传。刷新页面后需要重新选择并上传。完整上传后记录文件 SHA256。
+- 使用 FFmpeg 提取音频，通过本机 whisper.cpp 或兼容 OpenAI 接口的云端服务生成带时间戳的转写。
+- 使用实际的 LangGraph 工作流：媒体处理 → 转写 → 引用整理 → AI 分析 → 报告校验。AsyncSqliteSaver 持久化保存节点检查点。分析任务串行执行，排队和运行中的任务合计最多 5 个。
+- 生成结构化中文报告，包括带引用的摘要、开头与钩子、内容结构、选题与受众、表达与情绪、差异化原创选题、分析局限，以及模型和提示词版本。
+- 点击引用查看原文，查看带时间戳的转写，验证身份后播放和跳转视频，导出 Markdown，将创作提纲保存到已有草稿。重复保存不会覆盖用户已经编辑的草稿。
+- 持久化保存任务状态，支持取消、手动重试及重启后的恢复。关闭或刷新网页不会取消已经提交的任务。服务重启后，排队和运行中的任务会标记为“已中断”，需要手动重试。
 
-No sample reports or fake transcriptions ship in production. Unconfigured environments show setup instructions and keep submission disabled. API endpoints also enforce readiness and explicit consent.
+正式程序不包含示例报告或虚假转写。环境未配置完成时，页面会展示配置说明并禁用提交；后端接口也会校验服务是否就绪以及用户是否明确同意发送分析材料。
 
-## Mac configuration
+## Mac 部署与配置
 
-Keep using the existing Access-protected deployment and **MediaCrawler Start / MediaCrawler Stop**. After pulling this release, install the new locked dependencies and rebuild:
+继续使用现有受 Access 保护的公网入口，以及 **MediaCrawler Start / MediaCrawler Stop**。拉取更新后，安装锁定的新依赖并构建前端：
 
 ```bash
 cd /Users/yiwen/Documents/ChatGPT/MediaCrawler
+git pull --ff-only
 uv sync --frozen
 npm --prefix webui ci
 npm --prefix webui run build
 ```
 
-The lockfile was regenerated with uv; it adds LangGraph/checkpoint dependencies while retaining all previous dependency versions. The package index is now the official `https://pypi.org/simple`, matching the cloud installation override used previously.
+依赖锁文件已通过 uv 重新生成，新增 LangGraph 和检查点依赖，原有依赖版本保持不变。软件包索引改为官方 `https://pypi.org/simple`，与此前云端安装时使用的索引一致。
 
-Add private configuration to the existing `~/.config/mediacrawler/remote.env`. Preserve all existing Access, audience and operator settings. Never put real keys in Git, a screenshot or chat.
+将以下私有配置添加到现有 `~/.config/mediacrawler/remote.env`。保留原有 Access、受众和操作员配置。不要把真实密钥放入 Git、截图或聊天。
 
 ```dotenv
+# 将 YOUR_PROVIDER_KEY 替换为你自己的模型服务密钥
 MC_REMIX_API_KEY=YOUR_PROVIDER_KEY
 MC_REMIX_BASE_URL=https://api.openai.com/v1
 MC_REMIX_MODEL=gpt-4.1-mini
 MC_REMIX_ASR=local
+# 替换为本机已安装模型文件的绝对路径
 MC_REMIX_WHISPER_MODEL=/absolute/path/to/ggml-model.bin
-# Optional if whisper-cli is not on the service PATH:
+# 如果服务的 PATH 中找不到 whisper-cli，可指定其绝对路径：
 # MC_REMIX_WHISPER_BIN=/absolute/path/to/whisper-cli
 ```
 
-The analysis adapter calls `/chat/completions` using JSON object output and a Pydantic-generated schema in the prompt. A compatible provider must support this API and the configured model. Keys are only read by the backend. The browser sees the receiving hostname, model and readiness, never the key or full provider URL. HTTPS is required except for explicitly configured loopback services.
+分析服务调用 `/chat/completions`，要求返回 JSON 对象，并在提示词中提供由 Pydantic 生成的结构定义。所选服务商必须支持这一接口和配置的模型。密钥只由后端读取；浏览器仅显示接收服务的主机名、模型和就绪状态，不显示密钥或完整服务地址。除明确配置的本机回环服务外，服务地址必须使用 HTTPS。
 
-For local transcription on macOS:
+### 使用本机转写
+
+在 macOS 安装媒体工具：
 
 ```bash
 brew install ffmpeg whisper-cpp
 ```
 
-Install a multilingual GGML model compatible with the installed whisper.cpp release (for Chinese, do not choose an English-only `.en` model). Official model instructions: https://github.com/ggml-org/whisper.cpp/tree/master/models . Set its absolute file path in `MC_REMIX_WHISPER_MODEL`. Model downloads are not performed automatically.
+然后安装与当前 whisper.cpp 版本兼容的多语言 GGML 模型。分析中文时，不要选择仅支持英语的 `.en` 模型。
 
-For cloud transcription instead:
+官方模型安装说明：https://github.com/ggml-org/whisper.cpp/tree/master/models
+
+将模型文件的绝对路径填入 `MC_REMIX_WHISPER_MODEL`。程序不会自动下载模型。
+
+### 使用云端转写
+
+如果选择云端转写，将配置改为：
 
 ```dotenv
 MC_REMIX_ASR=cloud
 MC_REMIX_ASR_MODEL=whisper-1
 ```
 
-Cloud transcription uses the same configured API base/key, `/audio/transcriptions`, `verbose_json`, and segment timestamps. A provider/model returning only untimed text is rejected. FFmpeg is still needed to extract/compress the audio. This release does not upload full video to the model service.
+云端转写沿用已配置的服务地址和密钥，调用 `/audio/transcriptions`，要求支持 `verbose_json` 和片段时间戳。只返回无时间戳文本的服务或模型无法使用。云端转写仍需要本机 FFmpeg 提取和压缩音频；本版本不会把完整视频上传到模型服务。
 
-Restart with **MediaCrawler Stop**, then **MediaCrawler Start**. Refresh **AI 内容分析 → 刷新配置与素材**. Text analysis needs only the analysis service; video analysis additionally needs FFmpeg and the selected transcription backend.
+### 重启与检查
 
-## Evidence and model behavior
+依次打开 **MediaCrawler Stop**、**MediaCrawler Start**，然后进入 **AI 内容分析 → 刷新配置与素材**。
 
-Explicit consent is required for every submitted request. The selected title, saved body and chosen transcript are sent to the configured analysis service. In cloud-ASR mode, extracted audio is also sent to the transcription service; in local-ASR mode it stays on the computer. LangSmith tracing is explicitly disabled around graph execution.
+正文分析只需要配置分析模型；视频分析还需要 FFmpeg，以及已配置完成的本机或云端转写服务。
 
-Input evidence is bounded to 30,000 characters. Long note bodies are truncated with a report limitation; overlong combined body/transcript input is rejected. Videos are limited to 15 minutes, transcripts to 600 timed segments, and model output to 5,000 tokens. These are processing limits, not a currency budget; prices vary by provider and model.
+## 分析材料、引用与模型行为
 
-The model receives source materials as untrusted JSON and has no tools or filesystem access. Reports are parsed and validated against a strict schema. Each finding, summary and creative idea must refer to existing evidence IDs; unsupported IDs, missing references, duplicate/incomplete dimensions and malformed outputs are rejected. The backend adds missing-body, truncation, voice-recognition and missing-visual/comment limitations.
+每次提交任务前都需要明确同意发送材料。所选标题、已保存正文和视频转写会发送给配置的分析服务。使用云端转写时，提取的音频也会发送给转写服务；使用本机转写时，音频保留在电脑上。工作流执行期间明确禁用 LangSmith 追踪。
 
-This validates the existence of citations and output structure; it is not a proof that every interpretation follows from its citation. Users should inspect original evidence. Single-item analysis cannot establish viral causality or viral probability. Suggested outlines are AI proposals, not verified personal experiences or finished publishable text.
+输入材料合计最多 30000 字符。超长笔记正文会截断，并在报告中说明；正文与转写合计超出上限时会拒绝分析。视频最多 15 分钟，转写最多 600 个带时间戳的片段，模型输出最多 5000 token。这些是处理上限，不是金额预算；实际费用取决于服务商和模型。
 
-For identical evidence, endpoint, model and prompt version, a previously validated analysis result is reused; the new job records a cache hit and zero new analysis-call tokens. Completed graph stages/artifacts are reused on retry. A provider request interrupted before its result was saved may still be billed; retry may repeat that call. Transcriptions are cached within each job, not globally across independent uploads. Reports record the selected ASR provider/model and transcript hash.
+模型将原始材料视为不可信的 JSON 数据，没有工具调用能力或文件系统访问权限。报告按严格结构解析和校验：每条发现、摘要和创作建议都必须引用已有证据 ID；不存在的引用、缺失引用、重复或不完整的分析维度，以及格式错误的输出都会被拒绝。后端还会补充正文缺失、材料截断、语音识别误差、未分析画面和评论等局限。
 
-## Storage and execution
+这些检查验证引用是否存在、输出结构是否完整，不能证明每项解释都得到引用充分支持。使用时仍需核对原文。单条内容不能证明爆款因果或爆款概率；创作提纲是 AI 建议，不是经过核实的个人经历或可以直接发布的成稿。
 
-All analysis storage is under the configured runtime directory:
+证据、服务地址、模型和提示词版本相同时，会复用已经校验的分析结果；新任务会记录缓存命中，新增分析调用的 token 数为 0。重试会复用已完成的节点和产物。如果服务商请求在结果保存前中断，服务商仍可能计费，重试也可能重复调用。转写仅在同一任务内缓存，不会跨独立上传全局复用。报告记录所选转写服务、模型及转写内容哈希。
+
+## 存储与任务执行
+
+所有分析数据保存在配置的运行目录中：
 
 ```text
 <MC_RUNTIME_DIR>/content-remix/
-  analysis.sqlite3       jobs, upload progress, validated report cache
-  checkpoints.sqlite3    LangGraph node checkpoints
-  uploads/<id>/          uploaded source videos
-  jobs/<id>/             video snapshot, audio, transcript and metadata
+  analysis.sqlite3       分析任务、上传进度、已校验报告缓存
+  checkpoints.sqlite3    LangGraph 节点检查点
+  uploads/<id>/          上传的原始视频
+  jobs/<id>/             视频副本、音频、转写和元数据
 ```
 
-Collection data/snapshots remain in the collection database. Drafts and collection task history remain in the existing workbench database. Analysis reads do not migrate or update collection records. No browser extension, publishing endpoint, arbitrary command runner or GitHub synchronization is added.
+采集数据和互动快照仍保存在采集数据库；草稿和采集任务记录仍保存在原有工作台数据库。分析读取不会迁移或更新采集记录。本次没有新增浏览器扩展、发布接口、任意命令执行器或 GitHub 自动同步。
 
-Analysis tasks run on the existing backend's event loop, with separate concurrency from browser collection. FFmpeg and whisper-cli are owned child processes with fixed argument lists, timeouts, and cancellation cleanup. Child stderr and raw model error bodies are not exposed. Container demuxers and input protocols are restricted so uploaded playlists cannot cause FFmpeg to fetch arbitrary network content. Uploaded filenames do not control filesystem paths.
+分析任务运行在现有后端的事件循环中，与浏览器采集分别控制并发。FFmpeg 和 whisper-cli 是后端管理的子进程，使用固定参数列表，并具有超时和取消清理机制。页面不展示子进程标准错误或模型服务返回的原始错误正文。媒体容器解析器和输入协议受到限制，避免上传的播放列表引导 FFmpeg 获取任意网络内容。上传文件名不能控制服务器文件路径。
 
-Cancellation stops the active analysis/model await and owned media subprocess, preserving uploaded/generated files for retry. A short local video copy already running in a background thread may finish after cancellation; it cannot start another model call. Retries may change the configured provider only for a stage that has not already completed. Existing report/provenance remains unchanged.
+取消会停止当前分析或模型请求的等待，并终止本任务管理的媒体子进程；已上传和生成的文件会保留，供重试使用。已经在后台线程中开始的短时间本机视频复制可能在取消后完成，但不会因此启动新的模型调用。更改服务配置只会影响重试中尚未完成的阶段；已有报告和生成信息保持原样。
 
-## API and access
+## 接口与访问权限
 
-All routes live under `/api/remix` on the existing same-origin API:
+所有接口位于现有同域 API 的 `/api/remix` 路径下：
 
-- `GET /config`, `/sources`, `/jobs`, `/jobs/{id}`
-- `POST /uploads`; `GET /uploads/{id}`; `PUT /uploads/{id}?offset=...`
-- `POST /jobs`, `/jobs/{id}/cancel`, `/jobs/{id}/retry`, `/jobs/{id}/draft`
-- `GET /jobs/{id}/video`, `/jobs/{id}/report.md`
+- `GET /config`、`/sources`、`/jobs`、`/jobs/{id}`：配置状态、已有素材、任务列表和详情。
+- `POST /uploads`、`GET /uploads/{id}`、`PUT /uploads/{id}?offset=...`：创建上传、查询进度和写入分块。
+- `POST /jobs`、`/jobs/{id}/cancel`、`/jobs/{id}/retry`、`/jobs/{id}/draft`：提交、取消、重试和保存草稿。
+- `GET /jobs/{id}/video`、`/jobs/{id}/report.md`：播放视频和导出报告。
 
-Remote writes inherit operator roles, Access JWT, Origin/CSRF protection and operation audit logging. Viewers can inspect/download results but cannot upload, submit, retry, cancel or save drafts. This follows the existing shared-workbench model; it is not multi-tenant per-user data isolation.
+远程写入沿用操作员角色、Access JWT、Origin / CSRF 校验和操作审计。只读用户可以查看和下载结果，不能上传、提交、重试、取消任务或保存草稿。权限沿用现有共享工作台模式，没有实现按用户隔离数据的多租户机制。
 
-Lists are paginated. Video GET supports a single HTTP byte range; malformed/multiple/out-of-bounds ranges are rejected. Job/video IDs are validated; endpoints do not accept arbitrary server paths. Uploads enforce declared size, type suffix, chunk offsets, duplicate content checks, available disk space and at most ten incomplete uploads. Uploaded bytes are subsequently validated by the restricted media parser. Large files and incomplete uploads remain local until manually cleaned; automatic deletion is not implemented.
+列表采用分页查询。视频读取支持单个 HTTP 字节范围；格式错误、多个范围或越界范围会被拒绝。任务和视频 ID 会校验，接口不接受任意服务器路径。上传会校验声明大小、文件后缀、分块偏移、重复内容和可用磁盘空间，最多保留 10 个未完成上传。上传完成后，视频还需通过受限制的媒体解析器校验。大文件和未完成上传会留在本机，需手动清理；尚未实现自动删除。
 
-## Backup and upgrade
+## 备份、恢复与升级
 
-No collection/workbench schema migration is required. New analysis tables are created additively in the new directory. Existing Mac runtime files are never fetched through Git.
+本次不需要迁移采集库或工作台库的结构。新的分析表在独立目录中创建。Git 更新不会拉取或覆盖 Mac 上已有的运行数据。
 
-For a consistent backup, stop the workbench first. Use SQLite's online backup mechanism for **both** analysis and checkpoint databases, rather than copying a live database/WAL. For example, after setting an absolute backup destination:
+为保证备份一致，先停止工作台。分析数据库和检查点数据库都应使用 SQLite 在线备份机制，避免直接复制运行中的数据库或 WAL 文件。将下列示例替换为实际运行目录和已创建的备份目录：
 
 ```bash
 sqlite3 /absolute/runtime/content-remix/analysis.sqlite3 ".backup '/absolute/backup/analysis.sqlite3'"
 sqlite3 /absolute/runtime/content-remix/checkpoints.sqlite3 ".backup '/absolute/backup/checkpoints.sqlite3'"
 ```
 
-Copy `uploads/` and `jobs/` into that same backup while the service is stopped. Keep them together with both database backups; checkpoints may reference artifact paths. Restore to the same configured runtime directory with the service stopped, then restart and manually retry interrupted jobs. The backup contains creator content and should be private. Back up the existing collection/workbench stores using their existing procedures separately.
+服务停止期间，将 `uploads/` 和 `jobs/` 复制到同一个备份位置，与两个数据库备份一起保存，因为检查点可能引用产物路径。
 
-## Validation and remaining local acceptance
+恢复时保持服务停止，将数据库和产物恢复到原来配置的运行目录，再启动服务，手动重试已中断的任务。备份包含创作者内容，应妥善保管。已有采集库和工作台库仍按各自原有流程单独备份。
 
-Automated tests use temporary collection, workbench and analysis databases, generated media, and test-only model/ASR adapters. They cover actual LangGraph persistence, retries without repeating ASR, cancellation, restart recovery, report caching, invalid citations/schema/timestamps, upload bounds/replay, byte ranges, drafts, remote roles/CSRF/audit, actual FFmpeg processing and playlist rejection. Chromium tests cover submission, page reload, persistent history, reports/citations, Markdown download, draft saving, video upload/transcription controls, missing configuration, desktop/tablet/mobile layout and original navigation.
+## 验证范围与本机验收
 
-Cloud verification does not prove real-model output quality, Mac whisper.cpp performance, provider billing behavior or cross-network large uploads. Those require the actual configured Mac/provider. The first release excludes link-triggered collection, other platforms, cover/keyframe analysis, comments, batch comparison, trained virality prediction, transcript editing and automatic publishing. The phase-one architecture keeps these as future extensions rather than claiming unsupported results.
+自动化测试使用临时采集库、工作台库、分析库，以及生成的测试媒体；模型和转写服务仅在测试中替换。测试覆盖真实 LangGraph 持久化、重试时复用转写、取消、重启恢复、报告缓存、无效引用和结构、时间戳校验、上传限制和重复请求、视频范围请求、草稿、远程角色与 CSRF、审计、真实 FFmpeg 处理，以及拒绝播放列表输入。
+
+Chromium 测试覆盖提交、页面刷新、持久化任务历史、报告与引用、Markdown 下载、保存草稿、视频上传与转写查看、未配置状态、桌面／平板／手机布局，以及原有导航。
+
+云端验证不能确认真实模型的报告质量、Mac 上 whisper.cpp 的性能、服务商计费行为或跨网络大文件上传表现；这些需要在实际配置的 Mac 和模型服务上验收。
+
+第一版暂不支持：通过链接自动启动采集、其他平台、封面和关键帧分析、评论分析、批量比较、训练后的爆款预测模型、转写编辑、自动发布。这些能力保留为后续扩展。
