@@ -17,7 +17,7 @@
 
 ## Mac 部署与配置
 
-继续使用现有受 Access 保护的公网入口，以及 **MediaCrawler Start / MediaCrawler Stop**。拉取更新后，安装锁定的新依赖并构建前端：
+继续使用现有受 Access 保护的公网入口。**MediaCrawler Start / MediaCrawler Stop** 只控制工作台；公网隧道另由 **MediaCrawler Tunnel Start / MediaCrawler Tunnel Stop** 控制。拉取更新后，安装锁定的新依赖并构建前端：
 
 ```bash
 cd /Users/yiwen/Documents/ChatGPT/MediaCrawler
@@ -72,7 +72,7 @@ MC_REMIX_ASR_MODEL=whisper-1
 
 ### 重启与检查
 
-依次打开 **MediaCrawler Stop**、**MediaCrawler Start**，然后进入 **AI 内容分析 → 刷新配置与素材**。
+依次打开 **MediaCrawler Stop**、**MediaCrawler Start**；需要公网访问时另开 **MediaCrawler Tunnel Start**，然后进入 **AI 内容分析 → 刷新配置与素材**。
 
 正文分析只需要配置分析模型；视频分析还需要 FFmpeg，以及已配置完成的本机或云端转写服务。
 

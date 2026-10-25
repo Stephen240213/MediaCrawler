@@ -1,29 +1,36 @@
-# MediaCrawler Desktop Launcher
+# macOS 工作台与 Tunnel 独立启动说明
 
-A one-time Mac installation creates three English-named applications:
+工作台和公网隧道分开管理，各有独立的启动、停止、状态程序。所有程序名称使用英文。
 
-| Application | Action |
+| 程序 | 用途 |
 | --- | --- |
-| **MediaCrawler Start.app** | Start Workbench and Quick Tunnel in the background, update Worker upstream, and open the local Workbench |
-| **MediaCrawler Stop.app** | Stop the two services owned by this launcher; preserve saved data |
-| **MediaCrawler Status.app** | Show startup/running/error state, addresses, and the desktop log location |
+| MediaCrawler Start | 启动本机工作台并打开本机页面，不连接 Tunnel、不部署 Worker |
+| MediaCrawler Stop | 仅停止工作台，保留数据，不停止 Tunnel |
+| MediaCrawler Status | 查看当前工作台状态 |
+| MediaCrawler Tunnel Start | 连接 Tunnel、检查受保护入口并更新 Worker 上游地址 |
+| MediaCrawler Tunnel Stop | 仅停止 Tunnel，不影响工作台和正在运行的本机任务 |
+| MediaCrawler Tunnel Status | 查看当前 Tunnel 状态 |
 
-Applications are generated locally under `~/Applications/MediaCrawler/`. You can drag MediaCrawler Start to the Dock. No terminal window needs to remain open after startup.
+## 更新与安装
 
-## One-time installation on the collection Mac
-
-First complete the remote setup in `MACOS_WORKERS_DEV.md`: private `~/.config/mediacrawler/remote.env`, the Access-protected Worker, Node 22, uv, cloudflared, and a successful Wrangler OAuth login. The launcher retains Access authentication and does not start a collection task automatically.
-
-Stop the two previously opened manual Workbench and Tunnel terminal processes using Control+C, after any collection task finishes. The launcher will not terminate an existing manual service or an external browser. Port conflicts produce an error rather than killing an unrelated process.
-
-From the existing project folder:
+先完成现有 Python、Node、cloudflared 和私有 remote.env 配置。更新时需要停止旧版管理的服务，以便替换 LaunchAgent。下面命令不删除数据库、草稿、素材或密钥：
 
 ```bash
+cd /Users/yiwen/Documents/ChatGPT/MediaCrawler
 git pull --ff-only
+uv sync --frozen
+uv run --frozen python -m api.desktop stop
+uv run --frozen python -m api.desktop tunnel-stop
 uv run --frozen python -m api.desktop install
 ```
 
-Alternatively, double-click **Install MediaCrawler Launcher.command** in the project folder after pulling the new version. Both methods use the existing virtual environment and WebUI build; they do not replace your private environment file or databases. For a different private config path or ports:
+首次升级到拆分版时，旧的 MediaCrawler Stop 会停止旧版共同管理的工作台和 Tunnel。新版安装完成后，两者才独立管理。
+
+安装器会打开 `~/Applications/MediaCrawler`。请从这个新打开的目录运行程序；旧 Dock 图标可能仍指向备份中的旧版程序，需要移除后重新添加。
+
+安装器会先编译、签名并验证全部程序，再替换已确认由本安装器创建的文件。旧版程序、配置和 LaunchAgent 会备份到应用目录中的 `.backups/`。同名的第三方文件或服务不会覆盖。
+
+如果使用自定义端口或私有配置路径，请继续在安装时显式传入原来的值，例如：
 
 ```bash
 uv run --frozen python -m api.desktop install \
@@ -31,82 +38,82 @@ uv run --frozen python -m api.desktop install \
   --local-port 8090 --remote-port 8081
 ```
 
-The installer generates `.app` bundles using macOS `osacompile`, registers the current user's `com.mediacrawler.desktop` LaunchAgent and opens the application folder. It does not use root or start the services automatically. Existing files from an unknown installer or another project are preserved and installation stops. Reinstall only after using MediaCrawler Stop; earlier generated apps/settings are retained in the application folder's `.backups/` directory.
+## 日常使用
 
-The earlier standalone local script is now **MediaCrawler Local.command**. Its local execution method is unchanged. Use the new Start/Stop applications for the managed remote setup instead of running both launch paths at once.
+只在 Mac 本机使用时，打开 **MediaCrawler Start** 即可。本机默认地址：
 
-## Daily use
+```text
+http://127.0.0.1:8090/
+```
 
-1. Double-click **MediaCrawler Start**.
-2. Wait for startup. The first run may take longer while npm prepares the pinned Wrangler CLI. A successful start opens `http://127.0.0.1:8090` and displays a notification.
-3. Other devices visit your existing workers.dev address and sign in through Access.
-4. Double-click **MediaCrawler Stop** when finished. This also interrupts any collection task owned by the Workbench; already committed data remains saved.
-5. Use **MediaCrawler Status** if startup fails or takes longer than expected.
+需要让手机、平板或其他电脑访问时，再打开 **MediaCrawler Tunnel Start**。启动 Tunnel 前必须先有工作台的受保护本机接口；Tunnel 程序不会代替你启动或停止工作台。
 
-Clicking Start repeatedly reuses the same registered service; it never uses `kickstart -k`, starts another Workbench, or creates another Tunnel for an already running launcher. Closing the browser does not stop the services. The Mac must remain awake, online and signed into the desktop user session. Logging out or shutting down stops access; this installation is one-click startup, not automatic login or automatic collection.
+公网地址继续使用原来的 workers.dev 地址，访问仍需通过 Cloudflare Access 登录。Tunnel 启动时会等待临时地址和已注册连接，再验证匿名请求返回 HTTP 401，最后更新 Worker 的上游地址。未通过保护检查时不会更新 Worker，也不会关闭工作台。
 
-## Temporary address update
+重复点击各自的 Start 会复用该组件已有的服务，不会强制重启。关闭网页不会停止已运行的后台服务。Mac 仍需开机、保持联网和登录桌面用户；本方案没有设置登录后自动启动或自动采集。
 
-Each fresh start:
+不再需要远程访问时，打开 **MediaCrawler Tunnel Stop**，本机工作台和采集任务继续运行。停止工作台后，即使 Tunnel 进程仍在运行，公网也无法使用工作台；重新启动工作台后隧道可重新转发。若要全部关闭，分别运行两个 Stop。
 
-- Reads the private Access configuration and validates required tools/ports.
-- Starts the same guarded dual-listener Workbench on loopback only.
-- Checks actual local health and requires the protected listener to reject an anonymous request.
-- Starts Quick Tunnel, waits for its generated address **and** registered connection.
-- Probes the Tunnel's protected origin, expecting 401 without a JWT.
-- Uses the Mac's existing Wrangler authorization to deploy the checked-out Worker relay with PUBLIC_ORIGIN and the new UPSTREAM_ORIGIN. The pinned CLI is `wrangler@4.152.0`; `--keep-vars` preserves other Worker variables. No Access policy is removed or changed.
+## 独立进程、状态与日志
 
-The workers.dev address stays the same. You no longer need to manually copy each temporary Tunnel URL. The launcher updates the checked-out Worker source during deployment, so keep this Git branch current; do not treat edits made only in the Worker dashboard as the source of truth.
+两个组件分别使用以下用户级 LaunchAgent：
 
-Ready means local Workbench health, connected Tunnel, protected origin and successful Worker update. It does **not** replace authenticated browser verification: the launcher never extracts browser cookies/JWTs to test your login. Normal Access sign-in is still required. If the Mac's Wrangler authorization expires, follow the error instruction and run in Terminal:
+```text
+com.mediacrawler.desktop    工作台
+com.mediacrawler.tunnel     Tunnel
+```
+
+它们具有独立的进程锁、状态文件和日志：
+
+```text
+<MC_RUNTIME_DIR 或项目/.runtime>/desktop/
+  settings.json             本机路径、端口等启动配置，不含密钥值
+  status.json               工作台状态
+  tunnel-status.json        Tunnel 状态
+  desktop.log               工作台监督日志
+  tunnel.log                Tunnel 监督日志
+  agent.stdout.log          工作台 LaunchAgent 标准输出
+  agent.stderr.log          工作台 LaunchAgent 错误输出
+  tunnel-agent.stdout.log   Tunnel LaunchAgent 标准输出
+  tunnel-agent.stderr.log   Tunnel LaunchAgent 错误输出
+```
+
+监督日志达到 2 MB 时轮转，保留两份备份；输出经过凭据脱敏。每个组件只停止自己创建的子进程，不按进程名称批量终止 Python、Chrome 或 cloudflared，也不会因另一个组件出错而停止自己的服务。
+
+工作台停止时，会通过已有清理机制停止它管理的采集和分析任务。已经存在的外部 Chrome 浏览器不会被批量关闭。不要通过删除执行锁来强行启动第二个采集进程。
+
+## Tunnel 启动失败
+
+类似 `Tunnel origin is not reachable or is not protected` 的旧错误表示公网隧道检测失败，不代表 Python 无法运行。新版将错误保存在独立的 `tunnel.log` 中，并记录检测到的 HTTP 状态或网络不可用情况。
+
+工作台已经与这一检测分离：Tunnel 出错时仍可通过本机地址继续使用工作台。只需排查或重试 **MediaCrawler Tunnel Start**。
+
+如果 Wrangler 授权失效，在 Mac 终端重新登录：
 
 ```bash
-cd /path/to/MediaCrawler/deploy/remote/worker
+cd /Users/yiwen/Documents/ChatGPT/MediaCrawler/deploy/remote/worker
 npx wrangler@4.152.0 login
 ```
 
-Then retry MediaCrawler Start. The launcher does not ask for a token or store credentials in its generated app or settings. Quick Tunnel still has its provider's temporary-service limits; this is not a fixed-Tunnel availability guarantee.
+然后重新运行 **MediaCrawler Tunnel Start**。隧道仍使用固定版本 `wrangler@4.152.0` 更新当前检出的 Worker，带有 `--keep-vars`，不会删除 Access 策略或其他 Worker 变量。临时 Tunnel 地址可能变化，不具有固定隧道的稳定性保证。
 
-## Failures and ownership
+## 弹窗与诊断
 
-If Workbench, Tunnel or Worker update fails, startup fails and only processes created by this supervisor are stopped. The UI does not announce ready after merely observing a PID or port. If either running child later exits, the other service is stopped and the status records an error; collection is never automatically restarted. cloudflared may reconnect transient network interruptions while its process remains alive.
+错误弹窗可通过 Close 或 Escape 关闭，45 秒后自动关闭。Open Log 打开该程序的错误日志；Diagnostics 仅在手动点击后打开终端执行诊断，不会自动启动采集。
 
-A user-scoped LaunchAgent plus an OS lease prevents duplicate supervisor instances. Stop addresses that LaunchAgent, not a process name or a stale PID file. Workbench shuts down through its normal owned-task cleanup, leaving an already existing external CDP browser untouched. If forced termination leaves a collector behind, the existing execution lock prevents a new collection; inspect it locally instead of deleting lock files blindly.
-
-Desktop state and rotated logs are under `<MC_RUNTIME_DIR or project/.runtime>/desktop/`. Logs rotate at 2 MB with two backups; messages pass through the existing credential redactor. Local launch settings contain executable paths, addresses and private config **file paths**, not the private config values. They are written with mode 600. macOS LaunchAgent stdout/stderr files are local; inspect them only if the supervisor cannot start.
-
-Moving the project changes executable/module locations; stop the launcher and reinstall from its new folder rather than editing generated apps manually. For removal, stop the service, unload only `gui/<your uid>/com.mediacrawler.desktop`, then remove its LaunchAgent and the generated applications using Finder. Keep private environment, databases, media and backups.
-
-## Verification scope
-
-Cloud tests use temporary files, simulated app compilation, and harmless owned processes. They cover install preservation, English bundle metadata, process ownership, duplicate clicks, cancellation, port conflicts, Worker update failures, readiness/protection checks, and an actual paired Workbench startup/shutdown with only external Tunnel/Worker calls stubbed. They do not register launchctl on Linux, install macOS applications, perform real collection, or publish Cloudflare resources.
+各程序的完整控制输出保存在 `~/Library/Logs/MediaCrawler/`。状态窗口只展示有限长度的文本，避免 Python 错误内容过长导致按钮无法操作。
 
 ```bash
-uv run --frozen pytest tests/test_desktop_launcher.py -q
-```
-
-Actual osacompile, LaunchAgent registration, background OAuth lookup, and opening the apps require final verification on your Mac.
-
-### Cloud validation for this change
-
-- 428 Python regression tests passed, including 17 launcher tests and actual owned Workbench process startup/shutdown with external Tunnel/Worker calls stubbed.
-- All 5 Worker relay tests passed; Wrangler 4.152.0 confirms support for the preserved-variable deployment flag.
-- English installer/local command scripts passed bash syntax checks; Git whitespace checks passed.
-- Native AppleScript compilation, launchctl GUI registration and local Wrangler authorization still require the first installation run on the collection Mac. No production Tunnel, Cloudflare policy or collection task was started by cloud tests.
-
-### Recovering an oversized Python error dialog
-
-If an earlier launcher shows an enormous Python startup message, use macOS Force Quit (Command-Option-Escape) to close only MediaCrawler Start/Status. Do not kill all Python, browser, or cloudflared processes by name.
-
-Updated launchers capture interpreter bootstrap failures before Python can run. Full per-action output is saved privately under `~/Library/Logs/MediaCrawler/`; dialogs show short English messages with Close/Open Log/Diagnostics, support Escape, and close automatically after 45 seconds. Successful Status text is limited to 8 lines / 700 characters. These controls do not rely on a working Python runtime to handle an error.
-
-The installer checks direct Python startup before replacing apps. It also signs the generated local apps after editing Info.plist and verifies the signatures, instead of bypassing macOS verification. Existing installer-owned LaunchAgents can be upgraded to the new interpreter arguments.
-
-A Python runtime that works in Terminal can still be inaccessible from Finder or LaunchAgent, particularly when the project/runtime lives in Documents. Do not delete the virtual environment or move real data based solely on that symptom. First run:
-
-```bash
-cd /path/to/MediaCrawler
+cd /Users/yiwen/Documents/ChatGPT/MediaCrawler
 uv run --frozen python -m api.desktop diagnose
 ```
 
-Diagnostics print runtime/standard-library paths and bounded, redacted recent launcher errors; they do not dump private environment values. Use the Diagnostics button to open this command in Terminal. macOS folder permissions and native behavior still require verification on the actual Mac.
+诊断分别显示当前工作台和 Tunnel 状态，并给历史日志标注文件时间。某次 Status 日志中的 `ready` 不能证明当前仍在运行。
+
+终端能读取 Python 不代表 Finder 或 LaunchAgent 已有 Documents 目录权限。如果 macOS 提示访问项目所在文件夹，请按实际使用需求授权；不要仅凭弹窗就删除虚拟环境或移动已有数据。
+
+## 验证与限制
+
+云端测试使用临时文件、模拟应用编译、受控测试进程及真实本机 API，验证两组程序和 LaunchAgent、停止范围、重复启动、状态隔离、Tunnel 失败不停止工作台，以及本机工作台无需外网检测即可就绪。
+
+云端不会注册 Mac LaunchAgent、连接真实 Tunnel、变更 Cloudflare 账号或启动真实采集。原生应用编译、Finder 权限、Mac 网络和真实公网访问仍需在采集 Mac 上验收。

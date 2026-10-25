@@ -154,6 +154,6 @@ npm --prefix webui run build
 
 使用 Cloudflare 提供的 `workers.dev` 入口、Access 与 Mac Quick Tunnel 的步骤见 [macOS 临时部署说明](deploy/remote/MACOS_WORKERS_DEV.md)。不要将 Quick Tunnel 直接接到无鉴权的本机端口。临时 Tunnel 重启可能换地址，必须更新固定 Worker 上游；此路径尚待真实 Cloudflare 账号和 Mac 验收。
 
-## macOS one-click applications
+## macOS 独立启动程序
 
-English-named Start, Stop and Status apps can run Workbench + Quick Tunnel in the background and automatically update the Worker upstream. Installation and operating details: [MediaCrawler Desktop Launcher](deploy/remote/MACOS_LAUNCHER.md). This option preserves Access protection and uses local Wrangler authorization; it does not start collection automatically.
+工作台和 Tunnel 分别使用独立的英文命名 Start、Stop、Status 程序。先启动工作台，需要公网访问时再启动 Tunnel。Tunnel 失败或停止不会关闭工作台；只有 Tunnel 程序负责更新 Worker 上游地址。安装与使用步骤见 [macOS 独立启动说明](deploy/remote/MACOS_LAUNCHER.md)。仍保留 Access 保护和本机 Wrangler 授权，不自动开始采集。

@@ -123,6 +123,6 @@ Worker 代理的 4 项 Node 测试通过：无身份/未配置拒绝、固定目
 node --test deploy/remote/worker/index.test.mjs
 ```
 
-## One-click Start / Stop
+## 独立启动工作台与 Tunnel
 
-完成本节远程验证后，可安装英文命名的 **MediaCrawler Start**、**MediaCrawler Stop** 和 **MediaCrawler Status**，自动启动工作台和 Tunnel、更新临时上游，终端无需持续打开。安装步骤见 [MediaCrawler Desktop Launcher](MACOS_LAUNCHER.md)。临时 Tunnel 的地址与可用性限制仍然存在；启动器负责每次启动后的地址更新，不移除 Access 或自动开始采集。
+完成本节远程验证后，可安装两组英文命名的程序：**MediaCrawler Start / Stop / Status** 只控制工作台；**MediaCrawler Tunnel Start / Stop / Status** 单独控制 Tunnel 并更新临时上游。工作台不等待 Tunnel 连通，Tunnel 出错不会关闭工作台。安装步骤见 [macOS 独立启动说明](MACOS_LAUNCHER.md)。临时 Tunnel 的地址与可用性限制仍然存在；Access 保护保持启用，不自动开始采集。
