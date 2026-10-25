@@ -157,3 +157,17 @@ def list_tasks():
         if item['outcome'] == 'running' and item['id'] != active_id:
             item['outcome'] = 'interrupted'
     return {'tasks': sorted(documents, key=lambda t: t['started_at'], reverse=True)[:100]}
+
+
+@router.delete('/tasks/{task_id}')
+def delete_task(task_id: str):
+    from ..services import crawler_manager
+    if crawler_manager.task_id == task_id and crawler_manager.process and crawler_manager.process.poll() is None:
+        raise HTTPException(409, '运行中的任务不能删除，请先停止任务')
+    try:
+        deleted = store.delete_task(task_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not deleted:
+        raise HTTPException(404, '任务记录不存在')
+    return {'deleted': True}

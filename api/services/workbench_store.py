@@ -105,3 +105,18 @@ def audit(actor, identity, method, path, status):
 def finish_audit(event_id, status):
     with connect() as db:
         db.execute('UPDATE audit_events SET status=? WHERE id=?',(status,event_id))
+
+
+def delete_task(task_id):
+    """Remove terminal history/logs atomically; retain replay tombstones and data."""
+    with connect() as db:
+        remote_schema(db)
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute("SELECT body FROM documents WHERE kind='task' AND id=?", (task_id,)).fetchone()
+        if not row:
+            return False
+        if json.loads(row[0]).get('outcome') == 'running':
+            raise ValueError('运行中的任务不能删除，请先停止任务')
+        db.execute("DELETE FROM documents WHERE kind='task' AND id=?", (task_id,))
+        db.execute('DELETE FROM task_logs WHERE task_id=?', (task_id,))
+        return True

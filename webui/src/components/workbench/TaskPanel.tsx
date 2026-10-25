@@ -1,3 +1,6 @@
+import { useSession, canOperate } from '@/lib/session'
+import api from '@/lib/api'
+import { errorMessage } from '@/lib/workbench'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, Clock3, CheckCircle2, AlertCircle } from 'lucide-react'
@@ -41,8 +44,16 @@ export function TaskPanel() {
 }
 
 export function TaskHistory() {
+  const writable = canOperate(useSession())
+  const [deleting, setDeleting] = useState('')
+  const [error, setError] = useState('')
+  const remove = async (id: string) => {
+    if (!window.confirm('删除这条任务记录及其日志？已采集的数据、草稿和素材会保留。')) return
+    setDeleting(id); setError('')
+    try {await api.delete('/workbench/tasks/' + encodeURIComponent(id)); await refetch()} catch(e) {setError(errorMessage(e))} finally {setDeleting('')}
+  }
   const {data = [], isLoading, isError, refetch} = useQuery({queryKey: ['workbenchTasks'], queryFn: workbenchApi.tasks, refetchInterval: 3000})
   return <section className="wb-card"><div className="wb-card-heading"><h2>任务记录</h2><button className="wb-button" onClick={() => refetch()}>刷新</button></div><div className="wb-table-wrap">
-    {isError ? <p role="alert" className="wb-empty">任务记录加载失败，请刷新重试。</p> : !data.length ? <div className="wb-empty"><Clock3/><h3>{isLoading ? '正在读取…' : '还没有任务记录'}</h3><p>每次采集的目标、起止时间和结果会保存在本机。</p></div> : <table className="wb-table"><thead><tr><th>任务</th><th>采集目标</th><th>开始时间</th><th>结果</th><th>退出码</th></tr></thead><tbody>{data.map(task => <tr key={task.id}><td>{platformNames[task.platform]}<small>{modeNames[task.crawler_type]}</small></td><td className="wb-target-cell" title={task.target}>{task.target || '—'}{task.xhs_filters && <small>网页高级筛选 · 已保存 {task.progress?.collected ?? 0} 条</small>}</td><td>{new Date(task.started_at).toLocaleString('zh-CN')}</td><td><span className={`wb-badge ${task.outcome === 'failed' ? 'red' : task.outcome === 'running' ? 'purple' : ''}`}>{outcomeNames[task.outcome]}</span></td><td>{task.exit_code ?? '—'}</td></tr>)}</tbody></table>}
+    {error && <p role="alert" className="wb-error">{error}</p>}{isError ? <p role="alert" className="wb-empty">任务记录加载失败，请刷新重试。</p> : !data.length ? <div className="wb-empty"><Clock3/><h3>{isLoading ? '正在读取…' : '还没有任务记录'}</h3><p>每次采集的目标、起止时间和结果会保存在本机。</p></div> : <table className="wb-table"><thead><tr><th>任务</th><th>采集目标</th><th>开始时间</th><th>结果</th><th>退出码</th><th>操作</th></tr></thead><tbody>{data.map(task => <tr key={task.id}><td>{platformNames[task.platform]}<small>{modeNames[task.crawler_type]}</small></td><td className="wb-target-cell" title={task.target}>{task.target || '—'}{task.xhs_filters && <small>网页高级筛选 · 已保存 {task.progress?.collected ?? 0} 条</small>}</td><td>{new Date(task.started_at).toLocaleString('zh-CN')}</td><td><span className={`wb-badge ${task.outcome === 'failed' ? 'red' : task.outcome === 'running' ? 'purple' : ''}`}>{outcomeNames[task.outcome]}</span></td><td>{task.exit_code ?? '—'}</td><td><button className="wb-button" disabled={!writable || !!deleting || task.outcome === 'running'} onClick={() => void remove(task.id)}>{deleting === task.id ? '删除中…' : '删除'}</button></td></tr>)}</tbody></table>}
   </div></section>
 }
