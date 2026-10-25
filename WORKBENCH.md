@@ -1,6 +1,6 @@
 # 本机内容工作台
 
-在本项目目录双击 `启动 MediaCrawler.command`，访问 http://127.0.0.1:8080 。
+在本项目目录双击 `MediaCrawler Local.command`，访问 http://127.0.0.1:8080 。
 
 ## 页面与功能
 

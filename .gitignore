@@ -191,3 +191,6 @@ database/*.db.*
 .runtime/
 .DS_Store
 .pnpm-store/
+
+# Local Wrangler build state (never credentials or generated bundles)
+.wrangler/

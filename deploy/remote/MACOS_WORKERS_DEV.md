@@ -122,3 +122,7 @@ Worker 代理的 4 项 Node 测试通过：无身份/未配置拒绝、固定目
 ```bash
 node --test deploy/remote/worker/index.test.mjs
 ```
+
+## One-click Start / Stop
+
+完成本节远程验证后，可安装英文命名的 **MediaCrawler Start**、**MediaCrawler Stop** 和 **MediaCrawler Status**，自动启动工作台和 Tunnel、更新临时上游，终端无需持续打开。安装步骤见 [MediaCrawler Desktop Launcher](MACOS_LAUNCHER.md)。临时 Tunnel 的地址与可用性限制仍然存在；启动器负责每次启动后的地址更新，不移除 Access 或自动开始采集。
