@@ -149,3 +149,7 @@ npm --prefix webui run build
 - 远程角色、会话失效、关闭页面后任务继续运行、无 WebSocket 日志交付时的轮询恢复已验证；原工作台、分析、草稿和素材回归通过。
 - macOS LaunchAgent 生成与 plist 内容校验通过，但没有在 macOS 安装或运行；Windows 任务计划与 Job Object 需要 Windows 本机验收。未建立真实 Cloudflare Tunnel。
 - 新工作目录 `/workspace/MediaCrawler-remote`；原 `/workspace/MediaCrawler` 未修改。当前独立预览为环境内 `http://127.0.0.1:8090`，使用临时数据库且没有样例采集数据；真实远程域名尚未配置。
+
+## 没有自有域名的 macOS 临时部署
+
+使用 Cloudflare 提供的 `workers.dev` 入口、Access 与 Mac Quick Tunnel 的步骤见 [macOS 临时部署说明](deploy/remote/MACOS_WORKERS_DEV.md)。不要将 Quick Tunnel 直接接到无鉴权的本机端口。临时 Tunnel 重启可能换地址，必须更新固定 Worker 上游；此路径尚待真实 Cloudflare 账号和 Mac 验收。
