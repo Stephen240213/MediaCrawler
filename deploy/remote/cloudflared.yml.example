@@ -1,0 +1,10 @@
+# Install a named tunnel ON THE COLLECTION COMPUTER. Do not commit real credentials.
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /absolute/private/path/REPLACE_WITH_TUNNEL_UUID.json
+
+ingress:
+  - hostname: crawler.example.com
+    service: http://127.0.0.1:8081
+    originRequest:
+      httpHostHeader: crawler.example.com
+  - service: http_status:404

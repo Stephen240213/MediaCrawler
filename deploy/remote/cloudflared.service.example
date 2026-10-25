@@ -1,0 +1,12 @@
+[Unit]
+Description=MediaCrawler Cloudflare named tunnel
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/cloudflared --config %h/.cloudflared/config.yml tunnel run
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target

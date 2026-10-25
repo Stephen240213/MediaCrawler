@@ -1,0 +1,17 @@
+# Linux desktop USER unit. Run as the logged-in browser owner, not root.
+[Unit]
+Description=MediaCrawler local and protected remote workbench
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/MediaCrawler
+ExecStart=%h/MediaCrawler/.venv/bin/python -m api.serve --env-file %h/.config/mediacrawler/remote.env
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=graphical-session.target
