@@ -101,35 +101,32 @@ def overview(options):
         charts['comment_trend'] = rows(db, 'SELECT date(m.published_at,\'+8 hours\') label,count(*) value ' + parent + ' AND m.published_at IS NOT NULL GROUP BY label ORDER BY label', args)
         # SQL groups repeated bodies first; bounded term extraction avoids loading
         # the whole comment database. UI discloses this sampling boundary.
-        bodies = rows(db, 'SELECT m.body,count(*) n ' + parent + " AND m.body IS NOT NULL GROUP BY m.body ORDER BY max(coalesce(m.collected_at,m.published_at,'')) DESC,m.body LIMIT 5000", args)
-        import jieba
-        from collections import Counter
-        import re
-        stop = {'一个', '这个', '那个', '我们', '你们', '他们', '可以', '就是', '真的', 'the', 'and', 'that', 'with', 'this'}
-        words = Counter()
-        for row in bodies:
-            # Per-document presence, weighted by distinct comment count.
-            tokens = set(w.lower() for w in jieba.cut((row['body'] or '')[:2000]) if len(w.strip()) > 1 and re.search(r'[\u4e00-\u9fffA-Za-z]', w))
-            for word in tokens - stop:
-                words[word] += row['n']
-        charts['words'] = [{'label': w, 'value': n} for w, n in words.most_common(30)]
+        bodies = rows(db, 'SELECT m.body,count(*) n ' + parent + " AND nullif(trim(m.body),'') IS NOT NULL GROUP BY m.body ORDER BY max(coalesce(m.collected_at,m.published_at,'')) DESC,m.body LIMIT 5000", args)
+        from .comment_analysis import analyze
+        analysis = analyze(bodies, summary['comment_count'])
+        charts['words'] = analysis['words']
         authors = rows(db, f'''SELECT c.platform,c.author_id,max(c.author) author,count(*) content_count,
             sum(c.likes) likes,count(c.likes) valid_likes_count FROM analytics_content c WHERE {where}
             AND c.author_id IS NOT NULL GROUP BY c.platform,c.author_id ORDER BY content_count DESC,c.platform,c.author_id LIMIT 20''', args)
         return dict(ready=ready, summary=summary, charts=charts, authors=authors,
                     generated_at=datetime.now(timezone.utc).isoformat(),
                     keywords=rows(db, "SELECT DISTINCT keyword FROM analytics_content WHERE keyword IS NOT NULL AND keyword!='' ORDER BY keyword LIMIT 500"),
-                    word_sample_bodies=len(bodies))
+                    word_sample_bodies=len(bodies), comment_analysis=analysis)
 
 
 INTERACTIONS = '(coalesce(c.likes,0)+coalesce(c.favorites,0)+coalesce(c.comments,0)+coalesce(c.shares,0))'
 
 
-def details(options, page=1, page_size=20, kind='content', sort='recent', word='', comment_date=''):
+def details(options, page=1, page_size=20, kind='content', sort='recent', word='', comment_date='', comment_code=''):
     where, args = filters(**options)
     with read_db() as (db, _):
         if kind == 'comment':
             source = f'''FROM analytics_comment m JOIN analytics_content c ON c.platform=m.platform AND c.content_id=m.content_id WHERE {where}'''
+            if comment_code:
+                from .comment_analysis import matches
+                db.create_function('comment_matches', 2, matches, deterministic=True)
+                source += ' AND comment_matches(m.body,?)=1'
+                args.append(comment_code)
             if word:
                 source += " AND instr(lower(m.body),lower(?))>0"
                 args.append(word)

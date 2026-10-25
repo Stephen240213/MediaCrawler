@@ -35,9 +35,9 @@ def overview(options=Depends(selection)):
 
 @router.get('/details')
 def details(options=Depends(selection), page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
-            kind: Literal['content', 'comment'] = 'content', sort: Literal['recent', 'interactions'] = 'recent', word: str = Query('', max_length=100), comment_date: str = ''):
+            kind: Literal['content', 'comment'] = 'content', sort: Literal['recent', 'interactions'] = 'recent', word: str = Query('', max_length=100), comment_date: str = '', comment_code: str = Query('', max_length=50)):
     try:
-        return service.details(options, page, page_size, kind, sort, word, comment_date)
+        return service.details(options, page, page_size, kind, sort, word, comment_date, comment_code)
     except ValueError as exc:
         raise HTTPException(422, '评论日期须为 YYYY-MM-DD') from exc
 
@@ -112,3 +112,15 @@ def export(options=Depends(selection), format: Literal['csv', 'xlsx'] = 'csv'):
             body = output.getvalue()
             media = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     return Response(body, media_type=media, headers={'Content-Disposition': f'attachment; filename="analytics.{format}"'})
+
+
+@router.post('/note-download')
+def note_download(platform: str, content_id: str):
+    from api.services.note_bundle import build
+    from api.routers.workbench import DATA_ROOT
+    from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
+    path, title, warnings = build(platform, content_id, DATA_ROOT)
+    return FileResponse(path, media_type='application/zip', filename=title + '.zip',
+                        headers={'X-Bundle-Warnings': str(len(warnings))},
+                        background=BackgroundTask(path.unlink, missing_ok=True))

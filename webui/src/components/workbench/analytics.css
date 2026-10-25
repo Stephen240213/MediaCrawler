@@ -50,3 +50,9 @@
 .an-history small { font-size: 10px; color: #93829f; }
 @media(max-width:1100px) { .an-grid.three { grid-template-columns: 1fr; } .an-cards { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media(max-width:680px) { .analytics .wb-card { padding: 16px; } .an-grid { grid-template-columns: 1fr; } .an-filter-grid { grid-template-columns: 1fr; } .an-cards { gap: 8px; } .an-cards strong { font-size: 19px; } }
+
+.an-word-cloud {display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:12px 18px; min-height:220px; padding:16px 0}
+.an-word-cloud button {border:0; background:transparent; cursor:pointer; max-width:100%; overflow-wrap:anywhere; line-height:1.3}
+.an-word-cloud button:hover, .an-word-cloud button:focus-visible {text-decoration:underline; outline:2px solid #a78bfa; border-radius:5px}
+.an-word-cloud small {font-size:11px; margin-left:4px; color:#6b7280}
+.an-details td:last-child {min-width:110px}

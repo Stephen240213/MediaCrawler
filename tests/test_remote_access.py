@@ -198,3 +198,20 @@ def test_websocket_closes_when_identity_expires(protected,signing):
         with pytest.raises(WebSocketDisconnect) as closed:
             ws.receive_json()
         assert closed.value.code==4401
+
+
+def test_new_operations_require_operator_and_csrf(signing, tmp_path, monkeypatch):
+    from api.main import app
+    from api.services import analytics
+    monkeypatch.setattr(store, 'DB_PATH', tmp_path/'state.db')
+    monkeypatch.setitem(analytics.sqlite_db_config,'db_path',str(tmp_path/'collection.db'))
+    store.save_document('task',{'id':'terminal','outcome':'completed'})
+    with TestClient(Boundary(app,signing[2],verifier=verifier(signing)), base_url='https://crawler.test') as client:
+        viewer=auth(signing,sub='viewer-sub',email='viewer@test.invalid')
+        viewer_csrf=client.get('/api/session',headers=viewer).json()['csrf_token']
+        for method,path in [('delete','/api/workbench/tasks/terminal'),('post','/api/analytics/note-download?platform=xhs&content_id=a')]:
+            assert getattr(client,method)(path,headers={**viewer,'Origin':'https://crawler.test','X-CSRF-Token':viewer_csrf}).status_code==403
+        operator=auth(signing)
+        assert client.delete('/api/workbench/tasks/terminal',headers=operator).status_code==403
+        csrf=client.get('/api/session',headers=operator).json()['csrf_token']
+        assert client.delete('/api/workbench/tasks/terminal',headers={**operator,'Origin':'https://crawler.test','X-CSRF-Token':csrf}).status_code==200
