@@ -103,6 +103,7 @@ class CrawlerStatusResponse(BaseModel):
 
 
 class LogEntry(BaseModel):
+    task_id: Optional[str] = None
     """Log entry"""
     id: int
     timestamp: str

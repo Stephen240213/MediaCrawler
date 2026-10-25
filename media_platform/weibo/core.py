@@ -22,6 +22,8 @@
 # @Time    : 2023/12/23 15:41
 # @Desc    : Weibo crawler main workflow code
 
+from tools.login_status import checked_login, report_login
+
 import asyncio
 import os
 # import random  # Removed as we now use fixed config.CRAWLER_MAX_SLEEP_SEC intervals
@@ -103,7 +105,7 @@ class WeiboCrawler(AbstractCrawler):
 
             # Create a client to interact with the xiaohongshu website.
             self.wb_client = await self.create_weibo_client(httpx_proxy_format)
-            if not await self.wb_client.pong():
+            if not await checked_login(self.wb_client.pong(), 'wb'):
                 login_obj = WeiboLogin(
                     login_type=config.LOGIN_TYPE,
                     login_phone="",  # your phone number
@@ -112,6 +114,7 @@ class WeiboCrawler(AbstractCrawler):
                     cookie_str=config.COOKIES,
                 )
                 await login_obj.begin()
+                report_login('wb', 'unknown')
 
                 # After successful login, redirect to mobile website and update mobile cookies
                 utils.logger.info("[WeiboCrawler.start] redirect weibo mobile homepage and update cookies on mobile platform")

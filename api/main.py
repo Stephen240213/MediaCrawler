@@ -26,11 +26,13 @@ import os
 import sys
 import subprocess
 from pathlib import Path
+from contextlib import asynccontextmanager
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
 
 from .routers import crawler_router, data_router, websocket_router
 from .routers.workbench import router as workbench_router
@@ -39,7 +41,19 @@ from .routers.analytics import router as analytics_router
 # Project root directory (used for running subprocesses like uv run main.py)
 PROJECT_ROOT = Path(__file__).parent.parent
 
+@asynccontextmanager
+async def lifespan(application):
+    from .services import crawler_manager
+    crawler_manager.recover()
+    try:
+        yield
+    finally:
+        if crawler_manager.process and crawler_manager.process.poll() is None:
+            await crawler_manager.stop(crawler_manager.task_id, outcome='interrupted')
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="MediaCrawler WebUI API",
     description="API for controlling MediaCrawler from WebUI",
     version="1.0.0"
@@ -216,3 +230,15 @@ if os.path.exists(WEBUI_DIR):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8080)
+
+
+@app.get('/api/session')
+async def local_session():
+    return {'mode':'local','sub':'local','email':'本机操作员','role':'operator','csrf_token':None,'expires_at':None}
+
+
+@app.exception_handler(RequestValidationError)
+async def sanitized_validation_error(request, error):
+    # Pydantic's default error payload includes rejected input; cookies and tokens
+    # must never be echoed to browsers or forwarded diagnostic services.
+    return JSONResponse({'detail':[{'loc':list(item['loc']),'type':item['type'],'msg':item['msg']} for item in error.errors()]},status_code=422)

@@ -24,6 +24,12 @@ from typing import Optional, List
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
+import hashlib
+import json
+import sys
+from datetime import timezone
+from .redaction import redact
+from .lease import available
 
 from ..schemas import CrawlerStartRequest, LogEntry
 from . import workbench_store
@@ -49,14 +55,17 @@ class CrawlerManager:
         self.task_id = None
         self.task = None
         self.error_message = None
+        self.last_start_result = None
 
     def _finish_task(self, outcome, exit_code=None):
         if self.task and self.task['outcome'] == 'running':
-            self.task.update(outcome=outcome, finished_at=datetime.now().isoformat(), exit_code=exit_code)
+            self.task.update(outcome=outcome, finished_at=datetime.now(timezone.utc).isoformat(), exit_code=exit_code)
             workbench_store.save_document('task', self.task)
 
     @property
     def logs(self) -> List[LogEntry]:
+        if self.task_id:
+            return [LogEntry(**row) for row in workbench_store.task_logs(self.task_id)]
         return self._logs
 
     def get_log_queue(self) -> asyncio.Queue:
@@ -67,8 +76,18 @@ class CrawlerManager:
 
     def _create_log_entry(self, message: str, level: str = "info") -> LogEntry:
         """Create log entry"""
-        if self.current_config and self.current_config.cookies:
-            message = message.replace(self.current_config.cookies, '[Cookie hidden]')
+        message = redact(message, (self.current_config.cookies if self.current_config else '',))
+        if message.startswith('MC_LOGIN_STATE ') and self.task:
+            try:
+                event=json.loads(message.removeprefix('MC_LOGIN_STATE '))
+                state=event.get('state')
+                if event.get('platform')==self.task['platform'] and state in ('unknown','authenticated','needs_local_action'):
+                    self.task.update(login_state=state, login_observed_at=datetime.now(timezone.utc).isoformat())
+                    workbench_store.save_document('task',self.task)
+                    labels={'unknown':'登录流程状态待确认','authenticated':'已有登录检查通过','needs_local_action':'需要在采集电脑完成登录或人工处理'}
+                    message=labels[state]
+            except (ValueError,TypeError,AttributeError):
+                pass
         if message.startswith('MC_PROGRESS ') and self.task:
             try:
                 progress = XhsSearchProgress.model_validate_json(message.removeprefix('MC_PROGRESS '))
@@ -78,9 +97,13 @@ class CrawlerManager:
             except ValueError:
                 pass
         self._log_id += 1
+        stamp = datetime.now(timezone.utc).isoformat()
+        if self.task_id:
+            self._log_id = workbench_store.append_log(self.task_id, stamp, level, message)
         entry = LogEntry(
             id=self._log_id,
-            timestamp=datetime.now().strftime("%H:%M:%S"),
+            timestamp=stamp,
+            task_id=self.task_id,
             level=level,
             message=message
         )
@@ -111,11 +134,33 @@ class CrawlerManager:
             return "debug"
         return "info"
 
-    async def start(self, config: CrawlerStartRequest) -> bool:
+    async def start(self, config: CrawlerStartRequest, request_key=None, actor="local") -> bool:
         """Start crawler process"""
         async with self._lock:
-            if self.process and self.process.poll() is None:
+            request_key = request_key or uuid4().hex
+            fingerprint = hashlib.sha256(config.model_dump_json().encode()).hexdigest()
+            candidate = {'id':uuid4().hex, 'platform':config.platform.value,
+                         'crawler_type':config.crawler_type.value, 'started_at':datetime.now(timezone.utc).isoformat(),
+                         'finished_at':None, 'outcome':'running', 'exit_code':None,
+                         'target':redact(config.keywords or config.specified_ids or config.creator_ids), 'actor':actor,
+                         'login_state':'unknown', 'login_message':'需要登录或验证码时，请在采集电脑的浏览器完成；工作台不远程控制桌面。'}
+            if config.xhs_filters:
+                candidate['xhs_filters']=config.xhs_filters.model_dump()
+            admission, document = workbench_store.reserve_task(candidate,actor,request_key,fingerprint)
+            if admission == 'conflict':
+                raise ValueError('同一请求标识不能用于不同参数')
+            if admission == 'replay':
+                self.last_start_result={'task_id':document['id'],'replayed':True}
+                return True
+            if admission == 'busy':
                 return False
+            self.task_id=candidate['id']; self.task=candidate
+            if not available(workbench_store.DB_PATH.parent/'execution.lock'):
+                self.error_message='存在遗留采集进程，请在采集电脑检查后重试'
+                self._finish_task('interrupted')
+                self.status='error'
+                return False
+            self.last_start_result={'task_id':self.task_id,'replayed':False}
 
             # Clear old logs
             self._logs = []
@@ -135,16 +180,7 @@ class CrawlerManager:
             cmd = self._build_command(config)
             self.current_config = config
             self.error_message = None
-            self.started_at = datetime.now()
-            self.task_id = uuid4().hex
-            self.task = {'id': self.task_id, 'platform': config.platform.value,
-                         'crawler_type': config.crawler_type.value, 'started_at': self.started_at.isoformat(),
-                         'finished_at': None, 'outcome': 'running', 'exit_code': None,
-                         'target': config.keywords or config.specified_ids or config.creator_ids}
-            if config.xhs_filters:
-                self.task['xhs_filters'] = config.xhs_filters.model_dump()
-            workbench_store.save_document('task', self.task)
-
+            self.started_at = datetime.now(timezone.utc)
             # Log start information
             entry = self._create_log_entry(f"Starting crawler: {' '.join(cmd)}", "info")
             await self._push_log(entry)
@@ -152,18 +188,20 @@ class CrawlerManager:
             try:
                 # Start subprocess
                 self.process = subprocess.Popen(
-                    cmd,
+                    [sys.executable, '-m', 'api.task_runner', *cmd],
+                    start_new_session=(os.name != 'nt'),
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
                     encoding='utf-8',
                     bufsize=1,
                     cwd=str(self._project_root),
-                    env={**os.environ, "PYTHONUNBUFFERED": "1", "MEDIACRAWLER_TASK_ID": self.task_id}
+                    env={**os.environ, "PYTHONUNBUFFERED": "1", "MEDIACRAWLER_TASK_ID": self.task_id, "MEDIACRAWLER_TASK_COOKIES": config.cookies, "MEDIACRAWLER_EXECUTION_LOCK": str(workbench_store.DB_PATH.parent/"execution.lock")}
                 )
 
                 self.status = "running"
-                self.started_at = datetime.now()
+                self.started_at = datetime.now(timezone.utc)
                 self.current_config = config
 
                 entry = self._create_log_entry(
@@ -178,15 +216,17 @@ class CrawlerManager:
                 return True
             except Exception as e:
                 self.status = "error"
-                self.error_message = str(e)
+                self.error_message = redact(e, (self.current_config.cookies if self.current_config else '',))
                 self._finish_task('failed')
                 entry = self._create_log_entry(f"Failed to start crawler: {str(e)}", "error")
                 await self._push_log(entry)
                 return False
 
-    async def stop(self) -> bool:
+    async def stop(self, task_id=None, outcome='cancelled') -> bool:
         """Stop crawler process"""
         async with self._lock:
+            if task_id is not None and task_id != self.task_id:
+                raise ValueError('任务已变更，请刷新状态后重试')
             if not self.process or self.process.poll() is not None:
                 return False
 
@@ -195,7 +235,10 @@ class CrawlerManager:
             await self._push_log(entry)
 
             try:
-                self.process.send_signal(signal.SIGTERM)
+                if os.name == 'nt':
+                    await asyncio.to_thread(subprocess.run, ['taskkill','/PID',str(self.process.pid),'/T'], capture_output=True, check=False)
+                else:
+                    os.killpg(self.process.pid, signal.SIGTERM)
 
                 # Wait for graceful exit (up to 15 seconds)
                 for _ in range(30):
@@ -207,7 +250,10 @@ class CrawlerManager:
                 if self.process.poll() is None:
                     entry = self._create_log_entry("Process not responding, sending SIGKILL...", "warning")
                     await self._push_log(entry)
-                    self.process.kill()
+                    if os.name == 'nt':
+                        await asyncio.to_thread(subprocess.run, ['taskkill','/PID',str(self.process.pid),'/T','/F'], capture_output=True, check=False)
+                    else:
+                        os.killpg(self.process.pid, signal.SIGKILL)
                 await asyncio.to_thread(self.process.wait, timeout=5)
 
                 entry = self._create_log_entry("Crawler process terminated", "info")
@@ -218,10 +264,10 @@ class CrawlerManager:
                 await self._push_log(entry)
                 if self.process and self.process.poll() is None:
                     self.status = 'error'
-                    self.error_message = str(e)
+                    self.error_message = redact(e, (self.current_config.cookies if self.current_config else '',))
                     return False
 
-            self._finish_task('cancelled', self.process.returncode)
+            self._finish_task(outcome, self.process.returncode)
             self.status = "idle"
             self.current_config = None
 
@@ -231,6 +277,18 @@ class CrawlerManager:
                 self._read_task = None
 
             return True
+
+    def recover(self):
+        active = self.task_id if self.process and self.process.poll() is None else None
+        workbench_store.recover_tasks(active)
+        if not active:
+            tasks=workbench_store.list_documents('task')
+            self.task=max(tasks,key=lambda t:t.get('started_at',''),default=None)
+            self.task_id=self.task['id'] if self.task else None
+            self.status='idle'
+            if not available(workbench_store.DB_PATH.parent/'execution.lock'):
+                self.status='error'
+                self.error_message='检测到上次服务遗留的执行进程；请在采集电脑检查，不会自动恢复或重复采集。'
 
     def get_status(self) -> dict:
         """Get current status"""
@@ -273,8 +331,6 @@ class CrawlerManager:
         if config.max_comments_count is not None:
             cmd.extend(["--max_comments_count_singlenotes", str(config.max_comments_count)])
 
-        if config.cookies:
-            cmd.extend(["--cookies", config.cookies])
 
         if config.xhs_filters is not None:
             cmd.extend(['--xhs_filters', config.xhs_filters.model_dump_json()])
@@ -328,7 +384,7 @@ class CrawlerManager:
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            self.error_message = str(e)
+            self.error_message = redact(e, (self.current_config.cookies if self.current_config else '',))
             entry = self._create_log_entry(f"Error reading output: {str(e)}", "error")
             await self._push_log(entry)
 

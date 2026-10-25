@@ -22,6 +22,8 @@
 # @Time    : 2023/12/2 18:44
 # @Desc    : Bilibili Crawler
 
+from tools.login_status import checked_login, report_login
+
 import asyncio
 import os
 import sys
@@ -101,7 +103,7 @@ class BilibiliCrawler(AbstractCrawler):
 
             # Create a client to interact with the xiaohongshu website.
             self.bili_client = await self.create_bilibili_client(httpx_proxy_format)
-            if not await self.bili_client.pong():
+            if not await checked_login(self.bili_client.pong(), 'bili'):
                 login_obj = BilibiliLogin(
                     login_type=config.LOGIN_TYPE,
                     login_phone="",  # your phone number
@@ -117,7 +119,7 @@ class BilibiliCrawler(AbstractCrawler):
                 # 登录流程结束后再校验一次，宁可在这里失败也不要带着未登录状态跑完全程：
                 # B 站的清晰度由 playurl 依据 Cookie 决定，死会话不会报错，
                 # 只会把带 get_media 的视频静默限制在 480P
-                if not await self.bili_client.pong():
+                if not await checked_login(self.bili_client.pong(), 'bili'):
                     utils.logger.error(
                         "[BilibiliCrawler.start] 登录流程结束后仍未登录：请确认扫码已完成、"
                         "或 config.COOKIES 是否有效。已终止，否则视频会被静默限制在 480P。"

@@ -18,6 +18,8 @@
 # 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
 
 
+from tools.login_status import checked_login, report_login
+
 import asyncio
 import os
 from asyncio import Task
@@ -115,7 +117,7 @@ class TieBaCrawler(AbstractCrawler):
             )
 
             # Check login status and perform login if necessary
-            if not await self.tieba_client.pong(browser_context=self.browser_context):
+            if not await checked_login(self.tieba_client.pong(browser_context=self.browser_context), 'tieba'):
                 login_obj = BaiduTieBaLogin(
                     login_type=config.LOGIN_TYPE,
                     login_phone="",  # your phone number
@@ -124,6 +126,7 @@ class TieBaCrawler(AbstractCrawler):
                     cookie_str=config.COOKIES,
                 )
                 await login_obj.begin()
+                report_login('tieba', 'unknown')
                 await self.tieba_client.update_cookies(
                     browser_context=self.browser_context,
                     urls=self.cookie_urls,

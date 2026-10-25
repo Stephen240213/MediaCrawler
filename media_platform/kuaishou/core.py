@@ -18,6 +18,8 @@
 # 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
 
 
+from tools.login_status import checked_login, report_login
+
 import asyncio
 import os
 import random
@@ -107,7 +109,7 @@ class KuaishouCrawler(AbstractCrawler):
 
             # Create a client to interact with the kuaishou website.
             self.ks_client = await self.create_ks_client(httpx_proxy_format)
-            if not await self.ks_client.pong():
+            if not await checked_login(self.ks_client.pong(), 'ks'):
                 login_obj = KuaishouLogin(
                     login_type=config.LOGIN_TYPE,
                     login_phone=httpx_proxy_format,
@@ -116,6 +118,7 @@ class KuaishouCrawler(AbstractCrawler):
                     cookie_str=config.COOKIES,
                 )
                 await login_obj.begin()
+                report_login('ks', 'unknown')
                 await self.ks_client.update_cookies(
                     browser_context=self.browser_context,
                     urls=self.cookie_urls,

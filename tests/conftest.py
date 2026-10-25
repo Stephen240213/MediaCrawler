@@ -96,3 +96,9 @@ def sample_xhs_creator():
         "interaction": 50000,
         "tag_list": '{"profession": "Designer", "interest": "Photography"}'
     }
+
+
+@pytest.fixture(autouse=True)
+def isolate_workbench_database(tmp_path, monkeypatch):
+    from api.services import workbench_store
+    monkeypatch.setattr(workbench_store, 'DB_PATH', tmp_path / 'workbench.sqlite3')

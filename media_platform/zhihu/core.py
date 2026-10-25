@@ -19,6 +19,8 @@
 
 
 # -*- coding: utf-8 -*-
+from tools.login_status import checked_login, report_login
+
 import asyncio
 import os
 # import random  # Removed as we now use fixed config.CRAWLER_MAX_SLEEP_SEC intervals
@@ -105,7 +107,7 @@ class ZhihuCrawler(AbstractCrawler):
 
             # Create a client to interact with the zhihu website.
             self.zhihu_client = await self.create_zhihu_client(httpx_proxy_format)
-            if not await self.zhihu_client.pong():
+            if not await checked_login(self.zhihu_client.pong(), 'zhihu'):
                 login_obj = ZhiHuLogin(
                     login_type=config.LOGIN_TYPE,
                     login_phone="",  # input your phone number
@@ -114,6 +116,7 @@ class ZhihuCrawler(AbstractCrawler):
                     cookie_str=config.COOKIES,
                 )
                 await login_obj.begin()
+                report_login('zhihu', 'unknown')
                 await self.zhihu_client.update_cookies(
                     browser_context=self.browser_context,
                     urls=self.cookie_urls,

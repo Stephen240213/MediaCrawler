@@ -18,6 +18,7 @@
 # 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
 
 import sys
+import os
 import io
 
 # Force UTF-8 encoding for stdout/stderr to prevent encoding errors
@@ -101,6 +102,7 @@ async def main() -> None:
     global crawler
 
     args = await cmd_arg.parse_cmd()
+    os.environ.pop("MEDIACRAWLER_TASK_COOKIES", None)
     if args.init_db:
         await db.init_db(args.init_db)
         print(f"Database {args.init_db} initialized successfully.")
