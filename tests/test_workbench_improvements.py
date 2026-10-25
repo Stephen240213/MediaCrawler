@@ -124,3 +124,98 @@ def test_bundle_redirect_is_revalidated(monkeypatch):
     assert len(seen)==1
     assert seen[0].url.host=='1.1.1.1' and seen[0].headers['host']=='sns-img.xhscdn.com'
     assert seen[0].extensions['sni_hostname']=='sns-img.xhscdn.com'
+
+
+@pytest.fixture
+def cdn_transport(monkeypatch):
+    original = httpx.Client
+    monkeypatch.setattr(note_bundle.socket,'getaddrinfo',lambda *a,**k:[(2,1,6,'',('8.8.8.8',443))])
+    def install(handler):
+        monkeypatch.setattr(note_bundle.httpx,'Client',lambda **kw:original(transport=httpx.MockTransport(handler),**kw))
+    return install
+
+
+@pytest.mark.parametrize('mime',['application/octet-stream','application/mp4','video/mp4',''])
+def test_video_binary_mime_and_request_headers(cdn_transport, mime):
+    body=b'\x00\x00\x00\x18ftypmp42' + b'fixture-video'
+    def handler(request):
+        assert request.url.scheme=='http'  # Signed source protocol must not be rewritten.
+        assert request.headers['referer']=='https://www.xiaohongshu.com/'
+        assert request.headers['user-agent'].startswith('Mozilla/')
+        assert request.headers['accept-encoding']=='identity'
+        assert 'cookie' not in request.headers and 'authorization' not in request.headers
+        return httpx.Response(200,headers={'content-type':mime},content=body)
+    cdn_transport(handler)
+    content,suffix=note_bundle.fetch_media('http://sns-video.xhscdn.com/extensionless',1000,time.monotonic()+5)
+    assert content==body and suffix=='.mp4'
+
+
+@pytest.mark.parametrize('mime,body',[('application/octet-stream',b'<html>blocked</html>'),('video/mp4',b'<html>blocked</html>'),('application/vnd.apple.mpegurl',b'#EXTM3U'),('video/mp4',b'')])
+def test_video_error_response_is_not_saved(cdn_transport,mime,body):
+    cdn_transport(lambda request:httpx.Response(200,headers={'content-type':mime},content=body))
+    with pytest.raises(ValueError):
+        note_bundle.fetch_media('https://sns-video.xhscdn.com/video',1000,time.monotonic()+5)
+
+
+def test_video_falls_back_without_duplicate_file(client,monkeypatch):
+    with sqlite3.connect(analytics.db_path()) as db:
+        db.execute('CREATE TABLE xhs_note(note_id TEXT,desc TEXT,video_url TEXT,type TEXT)')
+        db.execute('INSERT INTO xhs_note VALUES (?,?,?,?)',('note1','正文','https://sns-video.xhscdn.com/expired,https://sns-video.xhscdn.com/working','video'))
+    calls=[]
+    def fetch(url,*args):
+        calls.append(url)
+        if url.endswith('expired'):
+            request=httpx.Request('GET',url)
+            raise httpx.HTTPStatusError('forbidden',request=request,response=httpx.Response(403,request=request))
+        return b'\x00\x00\x00\x18ftypmp42video', '.mp4'
+    monkeypatch.setattr(note_bundle,'fetch_media',fetch)
+    response=client.post('/api/analytics/note-download',params={'platform':'xhs','content_id':'note1'})
+    assert response.headers['x-bundle-videos']=='1'
+    assert response.headers['x-bundle-warnings']=='0'
+    assert len(calls)==2
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert len([n for n in archive.namelist() if n.endswith('.mp4')])==1
+
+
+def test_video_failure_reports_specific_reason_without_signed_url(client,monkeypatch):
+    with sqlite3.connect(analytics.db_path()) as db:
+        db.execute('CREATE TABLE xhs_note(note_id TEXT,desc TEXT,video_url TEXT,type TEXT)')
+        db.execute('INSERT INTO xhs_note VALUES (?,?,?,?)',('note1','正文','https://sns-video.xhscdn.com/v?token=private','video'))
+    def fetch(url,*args):
+        request=httpx.Request('GET',url)
+        raise httpx.HTTPStatusError('secret-url',request=request,response=httpx.Response(403,request=request))
+    monkeypatch.setattr(note_bundle,'fetch_media',fetch)
+    response=client.post('/api/analytics/note-download',params={'platform':'xhs','content_id':'note1'})
+    from urllib.parse import unquote
+    assert response.headers['x-bundle-videos']=='0'
+    report=unquote(response.headers['x-bundle-report'])
+    assert 'HTTP 403' in report and '视频未打包' in report
+    assert 'private' not in report and 'token=' not in report
+
+
+def test_fake_ip_dns_resolves_public_address_without_connecting_virtual_ip(cdn_transport,monkeypatch):
+    seen=[]
+    def handler(request):
+        seen.append(request)
+        if request.url.path=='/dns-query':
+            assert request.url.host=='1.1.1.1'
+            assert request.extensions['sni_hostname']=='cloudflare-dns.com'
+            return httpx.Response(200,json={'Status':0,'Answer':[{'type':1,'data':'8.8.8.8'}]})
+        assert request.url.host=='8.8.8.8'
+        return httpx.Response(200,headers={'content-type':'application/octet-stream'},content=b'\x00\x00\x00\x18ftypmp42video')
+    cdn_transport(handler)
+    monkeypatch.setattr(note_bundle.socket,'getaddrinfo',lambda *a,**k:[(2,1,6,'',('198.18.0.42',443))])
+    assert note_bundle.fetch_media('https://sns-video.xhscdn.com/video',1000,time.monotonic()+5)[1]=='.mp4'
+    assert len(seen)==2
+
+
+def test_fake_ip_dns_private_answer_still_rejected(cdn_transport,monkeypatch):
+    cdn_transport(lambda request:httpx.Response(200,json={'Status':0,'Answer':[{'type':1,'data':'127.0.0.1'}]}))
+    monkeypatch.setattr(note_bundle.socket,'getaddrinfo',lambda *a,**k:[(2,1,6,'',('198.18.0.42',443))])
+    with pytest.raises(ValueError,match='公网'):
+        note_bundle.fetch_media('https://sns-video.xhscdn.com/video',1000,time.monotonic()+5)
+
+
+def test_avif_is_not_counted_as_video(cdn_transport):
+    cdn_transport(lambda request:httpx.Response(200,headers={'content-type':'application/octet-stream'},content=b'\x00\x00\x00\x18ftypavifimage'))
+    assert note_bundle.fetch_media('https://sns-img.xhscdn.com/image',1000,time.monotonic()+5)[1]=='.avif'

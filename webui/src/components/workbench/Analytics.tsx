@@ -95,7 +95,9 @@ export function Analytics() {
       const r = await api.post('/analytics/note-download', null, {params: {platform: item.platform, content_id: item.content_id}, responseType:'blob', timeout:180000})
       const url = URL.createObjectURL(r.data); const a = document.createElement('a'); a.href = url
       a.download = (item.title || item.content_id).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0,70) + '.zip'; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000)
-      setNotice(Number(r.headers['x-bundle-warnings']) ? '下载包已生成，部分正文或媒体缺失，请查看包内 Download Report.txt。' : '笔记下载包已生成。')
+      const status = `下载包已生成：媒体 ${r.headers['x-bundle-media'] || '0'} 个，其中视频 ${r.headers['x-bundle-videos'] || '0'} 个。`
+      const report = r.headers['x-bundle-report'] ? decodeURIComponent(r.headers['x-bundle-report']) : ''
+      setNotice(Number(r.headers['x-bundle-warnings']) ? `${status}${report} 详情见 Download Report.txt。` : status)
     } catch {setNotice('笔记打包失败，请检查本机服务后重试。')} finally {setDownloading('')}
   }
   const data = overview.data

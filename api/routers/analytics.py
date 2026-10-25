@@ -121,6 +121,13 @@ def note_download(platform: str, content_id: str):
     from fastapi.responses import FileResponse
     from starlette.background import BackgroundTask
     path, title, warnings = build(platform, content_id, DATA_ROOT)
+    import zipfile
+    from urllib.parse import quote
+    with zipfile.ZipFile(path) as archive:
+        media = [name for name in archive.namelist() if '/media/' in name]
+        videos = sum(name.lower().endswith(('.mp4','.mov','.webm')) for name in media)
     return FileResponse(path, media_type='application/zip', filename=title + '.zip',
-                        headers={'X-Bundle-Warnings': str(len(warnings))},
+                        headers={'X-Bundle-Warnings': str(len(warnings)),
+                                 'X-Bundle-Media': str(len(media)), 'X-Bundle-Videos': str(videos),
+                                 'X-Bundle-Report': quote('；'.join(warnings)[:500], safe='')},
                         background=BackgroundTask(path.unlink, missing_ok=True))
