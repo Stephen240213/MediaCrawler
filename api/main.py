@@ -37,6 +37,7 @@ from fastapi.exceptions import RequestValidationError
 from .routers import crawler_router, data_router, websocket_router
 from .routers.workbench import router as workbench_router
 from .routers.analytics import router as analytics_router
+from .routers.remix import router as remix_router
 
 # Project root directory (used for running subprocesses like uv run main.py)
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -45,9 +46,12 @@ PROJECT_ROOT = Path(__file__).parent.parent
 async def lifespan(application):
     from .services import crawler_manager
     crawler_manager.recover()
+    from .services.remix.workflow import manager as remix_manager
+    await remix_manager.start()
     try:
         yield
     finally:
+        await remix_manager.stop()
         if crawler_manager.process and crawler_manager.process.poll() is None:
             await crawler_manager.stop(crawler_manager.task_id, outcome='interrupted')
 
@@ -82,6 +86,7 @@ app.include_router(data_router, prefix="/api")
 app.include_router(websocket_router, prefix="/api")
 app.include_router(workbench_router, prefix="/api")
 app.include_router(analytics_router, prefix="/api")
+app.include_router(remix_router, prefix="/api")
 
 
 @app.get("/")

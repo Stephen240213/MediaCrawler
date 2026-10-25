@@ -40,8 +40,10 @@ dependencies = [
     "websockets>=15.0.1",
     "asyncpg>=0.31.0",
     "xhshow>=0.2.0",
+    "langgraph>=1.0,<2",
+    "langgraph-checkpoint-sqlite>=3,<4",
 ]
 
 [[tool.uv.index]]
-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+url = "https://pypi.org/simple"
 default = true

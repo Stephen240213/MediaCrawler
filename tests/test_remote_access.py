@@ -215,3 +215,23 @@ def test_new_operations_require_operator_and_csrf(signing, tmp_path, monkeypatch
         assert client.delete('/api/workbench/tasks/terminal',headers=operator).status_code==403
         csrf=client.get('/api/session',headers=operator).json()['csrf_token']
         assert client.delete('/api/workbench/tasks/terminal',headers={**operator,'Origin':'https://crawler.test','X-CSRF-Token':csrf}).status_code==200
+
+
+def test_remix_mutations_keep_operator_and_csrf_boundary(signing,tmp_path,monkeypatch):
+    from api.main import app
+    from api.services import analytics
+    monkeypatch.setattr(store,'DB_PATH',tmp_path/'workbench.db')
+    monkeypatch.setitem(analytics.sqlite_db_config,'db_path',str(tmp_path/'collection.db'))
+    endpoints=[('post','/api/remix/jobs'),('post','/api/remix/uploads'),('put','/api/remix/uploads/'+'a'*32+'?offset=0'),
+               ('post','/api/remix/jobs/'+'a'*32+'/cancel'),('post','/api/remix/jobs/'+'a'*32+'/retry'),('post','/api/remix/jobs/'+'a'*32+'/draft')]
+    with TestClient(Boundary(app,signing[2],verifier=verifier(signing)),base_url='https://crawler.test') as client:
+        viewer=auth(signing,sub='viewer-sub',email='viewer@test.invalid')
+        csrf=client.get('/api/session',headers=viewer).json()['csrf_token']
+        for method,path in endpoints:
+            assert getattr(client,method)(path,headers={**viewer,'Origin':'https://crawler.test','X-CSRF-Token':csrf}).status_code==403
+            assert getattr(client,method)(path,headers=auth(signing)).status_code==403
+        operator=auth(signing);csrf=client.get('/api/session',headers=operator).json()['csrf_token']
+        response=client.post('/api/remix/uploads',headers={**operator,'Origin':'https://crawler.test','X-CSRF-Token':csrf},json={'filename':'test.mp4','size':10,'request_key':'remix-upload-123456'})
+        assert response.status_code==200
+        with store.connect() as db:
+            assert db.execute("SELECT count(*) FROM audit_events WHERE path='/api/remix/uploads' AND status=200").fetchone()[0]==1
