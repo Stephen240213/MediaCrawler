@@ -3,6 +3,22 @@
  * JWT verification is ALSO mandatory at the Mac's protected listener.
  * No arbitrary URL proxy, token storage, database, or credentials are used here.
  */
+// Setup hints only: these claims are NOT used to authenticate or authorize.
+// The Mac must still verify the signature against its configured issuer/AUD.
+// Never return the assertion, email, cookies, or arbitrary token claims.
+function setupHints(assertion) {
+  try {
+    const part = assertion.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    const payload = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(part.padEnd(Math.ceil(part.length / 4) * 4, '=')), c => c.charCodeAt(0))))
+    const audiences = typeof payload.aud === 'string' ? [payload.aud] : payload.aud
+    if (typeof payload.iss !== 'string' || payload.iss.length > 300 || !Array.isArray(audiences)) return {}
+    return {
+      access_issuer: payload.iss,
+      access_audiences: audiences.filter(v => typeof v === 'string' && v.length <= 300).slice(0, 10),
+    }
+  } catch {return {}}
+}
+
 export default {
   async fetch(request, env) {
     const fail = (status, detail) => Response.json({detail}, {status, headers: {'Cache-Control': 'no-store'}})
@@ -23,7 +39,7 @@ export default {
       target.pathname = incoming.pathname
       target.search = incoming.search
     } catch {
-      return fail(503, '远程入口尚未完成配置')
+      return Response.json({detail: '远程入口尚未完成配置', setup: setupHints(assertion)}, {status: 503, headers: {'Cache-Control': 'no-store'}})
     }
     const headers = new Headers(request.headers)
     headers.delete('Host') // Tunnel routing must use its own hostname.

@@ -52,3 +52,16 @@ test('WebSocket responses are preserved, offline errors and large uploads are bo
     assert.equal((await relay.fetch(new Request(env.PUBLIC_ORIGIN, {method: 'POST', headers: {...auth, 'Content-Length': String(17 * 1024 * 1024)}, body: 'x'}), env)).status, 413)
   } finally {globalThis.fetch = original}
 })
+
+test('setup hints expose issuer and audience only, never a credential or identity', async () => {
+  const claims = {iss: 'https://team.cloudflareaccess.com', aud: ['application-id'], email: 'private@example.test', sub: 'private-subject'}
+  const assertion = 'header.' + Buffer.from(JSON.stringify(claims)).toString('base64url') + '.private-signature'
+  const response = await relay.fetch(new Request(env.PUBLIC_ORIGIN, {headers: {'Cf-Access-Jwt-Assertion': assertion, Cookie: 'secret-cookie'}}), {})
+  assert.equal(response.status, 503)
+  const body = await response.json()
+  assert.deepEqual(body.setup, {access_issuer: claims.iss, access_audiences: claims.aud})
+  for (const secret of [assertion, claims.email, claims.sub, 'secret-cookie', 'private-signature']) assert.ok(!JSON.stringify(body).includes(secret))
+  const anonymous = await relay.fetch(new Request(env.PUBLIC_ORIGIN), {})
+  assert.equal(anonymous.status, 401)
+  assert.equal((await anonymous.json()).setup, undefined)
+})
