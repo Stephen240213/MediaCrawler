@@ -1,6 +1,8 @@
 """Install and control English-named macOS launcher applications."""
 import argparse
 import json
+import encodings
+import platform
 import os
 from pathlib import Path
 import plistlib
@@ -28,6 +30,17 @@ def tool_path(extra=''):
     return os.pathsep.join(p for p in candidates if p)
 
 
+def preflight_python(python, root):
+    command = [python, '-E', '-c', 'import encodings, ssl, dotenv, sys; print(sys.base_prefix)']
+    result = subprocess.run(command, cwd=str(root), capture_output=True, text=True, timeout=15)
+    if result.returncode:
+        path = control_log('preflight')
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path.write_text(redact(result.stderr))
+        path.chmod(0o600)
+        raise RuntimeError(f'Python startup check failed. Read {path} before reinstalling the launcher.')
+
+
 def settings_for_install(env_file, local_port, remote_port):
     env_file = Path(env_file).expanduser().resolve()
     values = dotenv_values(env_file) if env_file.is_file() else {}
@@ -41,32 +54,73 @@ def settings_for_install(env_file, local_port, remote_port):
     settings = DesktopSettings(ROOT, env_file, runtime.resolve(), str(ROOT/'.venv/bin/python'),
                cloudflared, npx, path, str(values.get('MC_PUBLIC_ORIGIN', '')).rstrip('/'), local_port, remote_port)
     settings.validate()
+    preflight_python(settings.python, settings.root)
     return settings
 
 
 def agent_definition(settings, settings_file):
     directory = settings.state_file.parent
-    return {'Label': LABEL, 'ProgramArguments': [settings.python, '-m', 'api.desktop', 'supervise', '--settings', str(settings_file)],
+    return {'Label': LABEL, 'ProgramArguments': [settings.python, '-E', '-m', 'api.desktop', 'supervise', '--settings', str(settings_file)],
             'WorkingDirectory': str(settings.root), 'RunAtLoad': False, 'KeepAlive': False,
             'ProcessType': 'Interactive', 'ExitTimeOut': 45, 'ThrottleInterval': 5, 'Umask': 0o077,
             'StandardOutPath': str(directory/'agent.stdout.log'), 'StandardErrorPath': str(directory/'agent.stderr.log'),
             'EnvironmentVariables': {'PATH': settings.tool_path, 'UV_FROZEN': '1'}}
 
 
+def control_log(action):
+    return Path.home()/'Library/Logs/MediaCrawler'/f'{action}.log'
+
+
+def control_command(action, python, settings_file, root=None, log_file=None):
+    """Capture even interpreter bootstrap failures, before our Python can run."""
+    root = Path(root or Path(python).parents[2])
+    log_file = Path(log_file or control_log(action))
+    command = shlex.join([python, '-E', '-m', 'api.desktop', action, '--settings', str(settings_file)])
+    # The group redirects cd/import/bootstrap failures too. No failure output is
+    # returned to AppleScript's unbounded errorText field.
+    return ('umask 077; /bin/mkdir -p ' + shlex.quote(str(log_file.parent)) + ' || exit 1; '
+            'if (cd ' + shlex.quote(str(root)) + ' && ' + command + ') > '
+            + shlex.quote(str(log_file)) + ' 2>&1; then '
+            '/usr/bin/head -n 8 ' + shlex.quote(str(log_file)) + '; else exit 1; fi')
+
+
 def application_script(action, python, settings_file, root=None):
-    command = shlex.join([python, '-m', 'api.desktop', action, '--settings', str(settings_file)])
-    command = 'cd ' + shlex.quote(str(root or Path(python).parents[2])) + ' && ' + command
-    escaped = json.dumps(command, ensure_ascii=False)
+    root = Path(root or Path(python).parents[2])
+    log_file = control_log(action)
+    escaped = json.dumps(control_command(action, python, settings_file, root, log_file), ensure_ascii=False)
     title = json.dumps(APP_NAMES[action])
-    present = f'display dialog resultText buttons {{"OK"}} default button "OK" with title {title}' if action == 'status' else f'display notification resultText with title {title}'
+    # Use the known terminal bootstrap for diagnostics. It never starts tasks,
+    # registers services, or prints the private environment's values.
+    terminal = ('cd ' + shlex.quote(str(root))
+                + ' && uv run --frozen python -m api.desktop diagnose --settings '
+                + shlex.quote(str(settings_file)))
+    present = (f'display dialog resultText buttons {{"Close"}} default button "Close" cancel button "Close" with title {title} giving up after 60'
+               if action == 'status' else f'display notification resultText with title {title}')
+    message = json.dumps('MediaCrawler could not run. The full error was saved to the control log. Choose Diagnostics to check Python in Terminal. This dialog closes automatically after 45 seconds.')
+    open_log = json.dumps(shlex.join(['/usr/bin/open', '-t', str(log_file)]), ensure_ascii=False)
     return f'''on run
     try
         with timeout of 420 seconds
             set resultText to do shell script {escaped}
         end timeout
+        if (length of resultText) > 700 then set resultText to (text 1 thru 700 of resultText) & "..."
         {present}
-    on error errorText
-        display dialog errorText buttons {{"OK"}} default button "OK" with title {title} with icon stop
+    on error errorText number errorNumber
+        if errorNumber is -128 then return
+        try
+            set choice to display dialog {message} buttons {{"Close", "Open Log", "Diagnostics"}} default button "Close" cancel button "Close" with title {title} with icon stop giving up after 45
+            if gave up of choice then return
+            if button returned of choice is "Open Log" then
+                do shell script {open_log}
+            else if button returned of choice is "Diagnostics" then
+                tell application "Terminal"
+                    activate
+                    do script {json.dumps(terminal, ensure_ascii=False)}
+                end tell
+            end if
+        on error
+            return
+        end try
     end try
 end run
 '''
@@ -143,7 +197,25 @@ def status(settings):
                       'Remote access requires browser sign-in. The Mac must remain awake and signed in.'])
 
 
-def install(settings, applications=None, agents=None, *, compile_app=None, register=True, reveal=True):
+def diagnose(settings):
+    lines = [f'Platform: {platform.system()}', f'Python: {sys.executable}',
+             f'Base runtime: {sys.base_prefix}', f'Encodings: {encodings.__file__}',
+             f'Encodings readable in this process: {os.access(encodings.__file__, os.R_OK)}',
+             f'Project: {settings.root}',
+             f'Project inside Documents: {settings.root.is_relative_to(Path.home()/"Documents")}',
+             f'Finder control log: {control_log("start")}',
+             'Note: a successful Terminal check does not establish Finder/LaunchAgent folder access.']
+    for name, path in [('Finder Start', control_log('start')), ('Finder Status', control_log('status')), ('Finder Stop', control_log('stop')), ('Agent stderr', settings.state_file.parent/'agent.stderr.log')]:
+        if path.is_file():
+            with path.open('rb') as file:
+                file.seek(0, os.SEEK_END)
+                file.seek(max(0, file.tell()-6000))
+                tail = file.read().decode('utf-8', errors='replace')
+            lines.extend([f'{name} recent output:', redact(tail)[-1800:]])
+    return '\n'.join(lines)
+
+
+def install(settings, applications=None, agents=None, *, compile_app=None, sign_app=None, register=True, reveal=True):
     applications = Path(applications or Path.home()/'Applications/MediaCrawler')
     agents = Path(agents or Path.home()/'Library/LaunchAgents')
     marker = applications/'.mediacrawler-launcher.json'
@@ -159,7 +231,10 @@ def install(settings, applications=None, agents=None, *, compile_app=None, regis
     if agent_file.exists():
         with agent_file.open('rb') as file:
             old = plistlib.load(file)
-        if old.get('Label') != LABEL or old.get('ProgramArguments', [])[:4] != [settings.python, '-m', 'api.desktop', 'supervise']:
+        arguments = old.get('ProgramArguments', [])
+        owned = (arguments[:4] == [settings.python, '-m', 'api.desktop', 'supervise'] or
+                 arguments[:5] == [settings.python, '-E', '-m', 'api.desktop', 'supervise'])
+        if old.get('Label') != LABEL or not owned:
             raise ValueError('A different LaunchAgent already uses this name; it was preserved.')
     if register and agent_pid():
         raise RuntimeError('Stop MediaCrawler with MediaCrawler Stop before updating its launchers.')
@@ -171,7 +246,16 @@ def install(settings, applications=None, agents=None, *, compile_app=None, regis
             subprocess.run(['/usr/bin/osacompile', '-l', 'AppleScript', '-o', str(destination)], input=source, text=True, check=True, capture_output=True)
         except subprocess.CalledProcessError as error:
             raise RuntimeError('macOS application compilation failed: ' + redact(error.stderr)[:1200]) from None
+    def native_sign(destination):
+        try:
+            # Info.plist changes invalidate osacompile's original signature.
+            # Sign our generated local app, then verify instead of disabling checks.
+            subprocess.run(['/usr/bin/codesign', '--force', '--deep', '--sign', '-', str(destination)], check=True, capture_output=True, text=True)
+            subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(destination)], check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as error:
+            raise RuntimeError('macOS application signing failed: ' + redact(error.stderr)[:1200]) from None
     compile_app = compile_app or native_compile
+    sign_app = sign_app or native_sign
     # Compile everything before replacing any installed app or configuration.
     with tempfile.TemporaryDirectory(prefix='.build-', dir=applications) as temporary:
         built = Path(temporary)
@@ -184,6 +268,7 @@ def install(settings, applications=None, agents=None, *, compile_app=None, regis
             info.update(CFBundleName=name, CFBundleDisplayName=name, CFBundleIdentifier=LABEL+'.'+action)
             with info_file.open('wb') as file:
                 plistlib.dump(info, file)
+            sign_app(destination)
         if register:
             launchctl('bootout', target())  # Unload only our stopped, validated agent.
         backup = applications/'.backups'/str(time.time_ns())
@@ -213,7 +298,7 @@ def install(settings, applications=None, agents=None, *, compile_app=None, regis
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['install', 'start', 'stop', 'status', 'supervise'])
+    parser.add_argument('action', choices=['install', 'start', 'stop', 'status', 'supervise', 'diagnose'])
     parser.add_argument('--settings', type=Path, default=ROOT/'.runtime/desktop/settings.json')
     parser.add_argument('--env-file', type=Path, default=Path.home()/'.config/mediacrawler/remote.env')
     parser.add_argument('--local-port', type=int, default=8090)
@@ -229,6 +314,9 @@ def main():
             print(f'Installed MediaCrawler Start, MediaCrawler Stop and MediaCrawler Status in {folder}.')
             return
         settings = DesktopSettings.load(args.settings)
+        if args.action == 'diagnose':
+            print(diagnose(settings))
+            return
         if args.action == 'supervise':
             supervisor = DesktopSupervisor(settings)
             signal.signal(signal.SIGTERM, lambda *_: supervisor.stop_event.set())

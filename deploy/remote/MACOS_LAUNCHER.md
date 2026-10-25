@@ -93,3 +93,20 @@ Actual osacompile, LaunchAgent registration, background OAuth lookup, and openin
 - All 5 Worker relay tests passed; Wrangler 4.152.0 confirms support for the preserved-variable deployment flag.
 - English installer/local command scripts passed bash syntax checks; Git whitespace checks passed.
 - Native AppleScript compilation, launchctl GUI registration and local Wrangler authorization still require the first installation run on the collection Mac. No production Tunnel, Cloudflare policy or collection task was started by cloud tests.
+
+### Recovering an oversized Python error dialog
+
+If an earlier launcher shows an enormous Python startup message, use macOS Force Quit (Command-Option-Escape) to close only MediaCrawler Start/Status. Do not kill all Python, browser, or cloudflared processes by name.
+
+Updated launchers capture interpreter bootstrap failures before Python can run. Full per-action output is saved privately under `~/Library/Logs/MediaCrawler/`; dialogs show short English messages with Close/Open Log/Diagnostics, support Escape, and close automatically after 45 seconds. Successful Status text is limited to 8 lines / 700 characters. These controls do not rely on a working Python runtime to handle an error.
+
+The installer checks direct Python startup before replacing apps. It also signs the generated local apps after editing Info.plist and verifies the signatures, instead of bypassing macOS verification. Existing installer-owned LaunchAgents can be upgraded to the new interpreter arguments.
+
+A Python runtime that works in Terminal can still be inaccessible from Finder or LaunchAgent, particularly when the project/runtime lives in Documents. Do not delete the virtual environment or move real data based solely on that symptom. First run:
+
+```bash
+cd /path/to/MediaCrawler
+uv run --frozen python -m api.desktop diagnose
+```
+
+Diagnostics print runtime/standard-library paths and bounded, redacted recent launcher errors; they do not dump private environment values. Use the Diagnostics button to open this command in Terminal. macOS folder permissions and native behavior still require verification on the actual Mac.

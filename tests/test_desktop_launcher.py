@@ -55,6 +55,10 @@ def test_agent_and_english_applications(settings):
         script=desktop.application_script(action,settings.python,settings.state_file,settings.root)
         assert 'cd ' in script and str(settings.root) in script
         assert '-m api.desktop' in script
+        assert '-E' in script
+        assert 'giving up after 45' in script
+        assert 'if errorNumber is -128 then return' in script
+        assert 'display dialog errorText' not in script
         assert 'launchctl' not in script  # actions remain in the reviewed controller
 
 
@@ -66,24 +70,30 @@ def compiler(source,destination):
 
 def test_installer_builds_backs_up_and_preserves_unknown_files(settings,tmp_path):
     apps=tmp_path/'Applications';agents=tmp_path/'Agents'
-    desktop.install(settings,apps,agents,compile_app=compiler,register=False,reveal=False)
+    desktop.install(settings,apps,agents,compile_app=compiler,sign_app=lambda _:None,register=False,reveal=False)
     for name in desktop.APP_NAMES.values():
         with (apps/f'{name}.app/Contents/Info.plist').open('rb') as file:
             assert plistlib.load(file)['CFBundleDisplayName']==name
-    assert (agents/f'{desktop.LABEL}.plist').exists()
-    desktop.install(settings,apps,agents,compile_app=compiler,register=False,reveal=False)
+    agent_path=agents/f'{desktop.LABEL}.plist'
+    assert agent_path.exists()
+    # Simulate the already-installed release before the -E/bootstrap fix.
+    with agent_path.open('rb') as file:old_agent=plistlib.load(file)
+    old_agent['ProgramArguments'].remove('-E')
+    with agent_path.open('wb') as file:plistlib.dump(old_agent,file)
+    desktop.install(settings,apps,agents,compile_app=compiler,sign_app=lambda _:None,register=False,reveal=False)
+    with agent_path.open('rb') as file:assert '-E' in plistlib.load(file)['ProgramArguments']
     assert list((apps/'.backups').glob('*/MediaCrawler Start.app'))
     foreign=tmp_path/'Other apps';foreign.mkdir();(foreign/'notes.txt').write_text('preserve')
-    with pytest.raises(ValueError):desktop.install(settings,foreign,agents,compile_app=compiler,register=False,reveal=False)
+    with pytest.raises(ValueError):desktop.install(settings,foreign,agents,compile_app=compiler,sign_app=lambda _:None,register=False,reveal=False)
     assert (foreign/'notes.txt').read_text()=='preserve'
 
 
 def test_compile_failure_keeps_installed_apps(settings,tmp_path):
     apps=tmp_path/'Apps';agents=tmp_path/'Agents'
-    desktop.install(settings,apps,agents,compile_app=compiler,register=False,reveal=False)
+    desktop.install(settings,apps,agents,compile_app=compiler,sign_app=lambda _:None,register=False,reveal=False)
     original=(apps/'MediaCrawler Start.app/source.txt').read_text()
     def fail(*_):raise RuntimeError('compiler fixture failure')
-    with pytest.raises(RuntimeError):desktop.install(settings,apps,agents,compile_app=fail,register=False,reveal=False)
+    with pytest.raises(RuntimeError):desktop.install(settings,apps,agents,compile_app=fail,sign_app=lambda _:None,register=False,reveal=False)
     assert (apps/'MediaCrawler Start.app/source.txt').read_text()==original
 
 
@@ -92,7 +102,7 @@ def test_foreign_agent_preserved(settings,tmp_path):
     path=agents/f'{desktop.LABEL}.plist'
     with path.open('wb') as file:plistlib.dump({'Label':desktop.LABEL,'ProgramArguments':['other-program']},file)
     before=path.read_bytes()
-    with pytest.raises(ValueError):desktop.install(settings,tmp_path/'Apps',agents,compile_app=compiler,register=False,reveal=False)
+    with pytest.raises(ValueError):desktop.install(settings,tmp_path/'Apps',agents,compile_app=compiler,sign_app=lambda _:None,register=False,reveal=False)
     assert path.read_bytes()==before
 
 
@@ -299,3 +309,59 @@ def test_real_workbench_paired_lifecycle(settings,tmp_path):
         assert not thread.is_alive()
     assert all(p.poll() is not None for _,p in supervisor.children)
     assert json.loads(settings.state_file.read_text())['state']=='stopped'
+
+
+def test_bootstrap_crash_is_logged_without_becoming_dialog_text(tmp_path):
+    root=tmp_path/'Project folder';root.mkdir()
+    broken=tmp_path/'broken-python'
+    broken.write_text('#!/bin/sh\nhead -c 20000 /dev/zero | tr "\\000" X >&2\nexit 1\n')
+    broken.chmod(0o700)
+    log=tmp_path/'Library Logs/start.log'
+    command=desktop.control_command('start',str(broken),root/'settings.json',root,log)
+    result=subprocess.run(['/bin/sh','-c',command],capture_output=True,text=True)
+    assert result.returncode!=0
+    assert not result.stdout and not result.stderr
+    assert log.stat().st_size==20000
+    assert log.stat().st_mode&0o777==0o600
+    script=desktop.application_script('start',str(broken),root/'settings.json',root)
+    assert 'display dialog errorText' not in script
+    assert 'buttons {"Close", "Open Log", "Diagnostics"}' in script
+    assert 'cancel button "Close"' in script
+
+
+def test_gui_python_ignores_inherited_pythonhome(tmp_path):
+    root=tmp_path/'Project folder';(root/'api').mkdir(parents=True)
+    (root/'api/__init__.py').write_text('')
+    (root/'api/desktop.py').write_text('import encodings; print("runtime ok")')
+    command=desktop.control_command('status',sys.executable,root/'settings.json',root,tmp_path/'status.log')
+    result=subprocess.run(['/bin/sh','-c',command],env={**os.environ,'PYTHONHOME':str(tmp_path/'missing-runtime'),'PYTHONPATH':str(tmp_path/'missing-code')},capture_output=True,text=True)
+    assert result.returncode==0,result.stderr
+    assert result.stdout.strip()=='runtime ok'
+
+
+def test_preflight_failure_preserves_config_and_caps_error(tmp_path,monkeypatch):
+    monkeypatch.setattr(desktop,'control_log',lambda action:tmp_path/f'{action}.log')
+    monkeypatch.setattr(desktop.subprocess,'run',lambda *_,**__:subprocess.CompletedProcess([],1,'','Python bootstrap failed\nCookie: session=secret'))
+    with pytest.raises(RuntimeError):desktop.preflight_python('/fixture/python',tmp_path)
+    assert 'session=secret' not in (tmp_path/'preflight.log').read_text()
+
+
+def test_app_signing_happens_after_metadata_and_before_install(settings,tmp_path):
+    signed=[]
+    def sign(path):
+        with (path/'Contents/Info.plist').open('rb') as file:
+            info=plistlib.load(file)
+        assert info['CFBundleIdentifier'].startswith(desktop.LABEL)
+        signed.append(info['CFBundleName'])
+    desktop.install(settings,tmp_path/'Apps',tmp_path/'Agents',compile_app=compiler,sign_app=sign,register=False,reveal=False)
+    assert signed==list(desktop.APP_NAMES.values())
+
+
+def test_diagnostics_do_not_dump_private_environment(settings,monkeypatch,tmp_path):
+    monkeypatch.setattr(desktop,'control_log',lambda action:tmp_path/f'{action}.log')
+    (tmp_path/'start.log').write_text('Cookie: session=secret\nPython path problem')
+    output=desktop.diagnose(settings)
+    assert 'Python:' in output and 'Encodings:' in output
+    assert 'session=secret' not in output
+    assert 'fixture-audience' not in output
+    assert 'owner@example.test' not in output
