@@ -45,7 +45,7 @@ class UploadInput(StrictModel):
 class Finding(StrictModel):
     observation: str = Field(min_length=1, max_length=1200)
     interpretation: str = Field(min_length=1, max_length=1200)
-    evidence_ids: list[str] = Field(min_length=1, max_length=8)
+    evidence_ids: list[str] = Field(min_length=1, max_length=16)
 
 
 class Section(StrictModel):

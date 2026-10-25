@@ -1,7 +1,9 @@
 """Explicit, bounded model calls; no arbitrary tools or source-controlled endpoints."""
 import asyncio
 import json
+import logging
 import os
+import re
 import shutil
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -205,6 +207,35 @@ def validate_report(raw, evidence, require_creation=False):
     return report.model_dump()
 
 
+def completion_report(data, evidence):
+    """Reject incomplete completions before JSON/schema validation; never log model text."""
+    if not isinstance(data,dict) or not isinstance(data.get('choices'),list) or not data['choices']:
+        raise AnalysisError('分析服务未返回可用的模型结果，请检查服务兼容性')
+    choice=data['choices'][0]
+    if not isinstance(choice,dict) or not isinstance(choice.get('message'),dict):
+        raise AnalysisError('分析服务返回的消息结构无效，请检查服务兼容性')
+    reason=choice.get('finish_reason')
+    content=choice['message'].get('content')
+    if reason=='length':
+        logging.getLogger(__name__).warning('Analysis output truncated: finish_reason=length, content_chars=%d',len(content) if isinstance(content,str) else 0)
+        raise AnalysisError('模型输出达到长度上限，报告被截断，未保存不完整结果。请使用非思考模式或精简需求后重试。')
+    if reason=='content_filter' or choice['message'].get('refusal'):
+        raise AnalysisError('分析模型未接受本次生成请求，请调整素材或创作需求后重试')
+    if not isinstance(content,str) or not content.strip():
+        raise AnalysisError('分析模型返回了空正文，未生成报告；请检查模型模式或稍后重试')
+    content=content.strip()
+    # Some compatible services wrap a complete JSON document in one Markdown fence.
+    fenced=re.fullmatch(r'```(?:json)?\s*(.*?)\s*```',content,flags=re.DOTALL|re.IGNORECASE)
+    if fenced:
+        content=fenced[1]
+    try:
+        raw=json.loads(content)
+    except ValueError:
+        logging.getLogger(__name__).warning('Analysis output invalid JSON: content_chars=%d',len(content))
+        raise AnalysisError('分析模型返回的报告不是完整有效的 JSON，未保存结果；请调整模型或精简输出后重试') from None
+    return validate_report(raw,evidence,require_creation=True)
+
+
 async def analyze(evidence):
     c=config();validate_base(c['base_url'])
     if not c['api_key']:
@@ -221,19 +252,34 @@ limitations 最多三条，只列影响判断的具体缺口及补充办法，�
     payload={'model':c['model'],'temperature':0.2,'max_tokens':10000,'response_format':{'type':'json_object'},
              'messages':[{'role':'system','content':system+'\n'+json.dumps(AnalysisReport.model_json_schema(),ensure_ascii=False)},
                          {'role':'user','content':json.dumps({'evidence':evidence},ensure_ascii=False)}]}
+    # DeepSeek defaults to thinking mode. For this bounded JSON task, reserve
+    # the completion budget for the report rather than an intermediate trace.
+    # Do not send vendor-specific options to other compatible services.
+    if urlsplit(c['base_url']).hostname=='api.deepseek.com' and c['model'] in ('deepseek-flash','deepseek-v4-pro'):
+        payload['thinking']={'type':'disabled'}
     try:
         async with httpx.AsyncClient(timeout=180,follow_redirects=False,trust_env=False) as client:
             response=await client.post(c['base_url']+'/chat/completions',headers={'Authorization':'Bearer '+c['api_key']},json=payload)
             response.raise_for_status()
         if len(response.content)>400000:
             raise AnalysisError('模型报告响应过大')
-        data=response.json();raw=json.loads(data['choices'][0]['message']['content'])
-        report=validate_report(raw,evidence,require_creation=True)
-        usage={k:v for k,v in data.get('usage',{}).items() if k in ('prompt_tokens','completion_tokens','total_tokens') and isinstance(v,int)}
+        try:
+            data=response.json()
+        except ValueError:
+            raise AnalysisError('分析服务返回的 HTTP 响应不是有效 JSON，请检查服务地址或代理') from None
+        report=completion_report(data,evidence)
+        raw_usage=data.get('usage')
+        usage={k:v for k,v in (raw_usage.items() if isinstance(raw_usage,dict) else []) if k in ('prompt_tokens','completion_tokens','total_tokens') and type(v) is int and v>=0}
         return report,usage,c['model']
     except httpx.HTTPStatusError as exc:
         raise AnalysisError(f'分析服务返回 HTTP {exc.response.status_code}，请检查模型、额度及配置') from None
-    except (httpx.HTTPError,KeyError,ValueError,TypeError) as exc:
+    except httpx.TimeoutException:
+        raise AnalysisError('分析服务响应超时，请稍后重试或精简生成需求') from None
+    except httpx.ConnectError:
+        raise AnalysisError('无法连接分析服务，请检查本机网络与服务地址') from None
+    except httpx.HTTPError:
+        raise AnalysisError('分析服务通信中断，请检查网络后重试') from None
+    except (KeyError,ValueError,TypeError) as exc:
         if isinstance(exc,AnalysisError):
             raise
-        raise AnalysisError('分析服务连接失败或响应无效，可稍后重试') from None
+        raise AnalysisError('分析服务返回的结果结构无效，请检查接口兼容性') from None
