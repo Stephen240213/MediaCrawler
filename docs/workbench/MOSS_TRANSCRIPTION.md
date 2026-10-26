@@ -1,5 +1,7 @@
 # 本机 MOSS 转写
 
+> 本文命令及行内文件路径均以项目根目录为基准。
+
 在 Apple Silicon Mac 上，ContentRemixAgent 可以复用 BaoCut 的原生 `model-worker`、MOSS 模型和 Qwen3 时间戳对齐器，使用 MLX／Metal 完成离线语音转写。无需安装 Python 推理框架或 whisper.cpp；适配器不会自动下载权重。BaoCut 更新后如发生协议不兼容，需要重新验证。
 
 ## 配置

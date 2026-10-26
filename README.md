@@ -1,5 +1,7 @@
 # 🔥 MediaCrawler - 自媒体平台爬虫 🕷️
 
+本机工作台入口：[项目目录说明](项目目录说明.md) · [本机使用](docs/usage/本机使用说明.md) · [文档导航](docs/README.md)。
+
 <div align="center">
 
 ### 🤝 特别感谢金牌赞助商

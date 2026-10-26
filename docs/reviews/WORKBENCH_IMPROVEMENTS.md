@@ -1,5 +1,7 @@
 # Workbench updates
 
+> 本文命令及行内文件路径均以项目根目录为基准。
+
 ## Collection and task records
 
 New collection forms default to Xiaohongshu (`xhs`); selecting another platform still works. Existing browser execution and SQLite defaults remain available.

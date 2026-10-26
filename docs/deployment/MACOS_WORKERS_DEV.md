@@ -1,5 +1,7 @@
 # macOS：先用 Cloudflare 提供的地址，后续再绑定自己的域名
 
+> 本文命令及行内文件路径均以项目根目录为基准。
+
 此路径不购买域名：使用 **Access 保护的 workers.dev 地址**作为浏览器入口，Worker 转发到采集 Mac 的 Quick Tunnel。不要直接分享 trycloudflare.com 地址作为无保护工作台入口。
 
 ```text
@@ -19,7 +21,7 @@ Quick Tunnel 是临时调试通道，不承诺固定地址或持续可用；重�
 本文件的命令需要在你的 Mac 终端执行，不能在云端代为安装。不要复制云端 Cookie、浏览器目录或临时测试数据库。
 
 - 先备份本机项目的采集 SQLite、`.runtime/`、`data/` 和浏览器相关配置。
-- 下载交付的 Git bundle；已有仓库按 `REMOTE_WORKBENCH.md` 导入新分支，不覆盖本机改动。新电脑可使用 `git clone -b feat/remote-workbench <bundle路径> MediaCrawler`。
+- 下载交付的 Git bundle；已有仓库按 [远程工作台说明](REMOTE_WORKBENCH.md) 导入新分支，不覆盖本机改动。新电脑可使用 `git clone -b feat/remote-workbench <bundle路径> MediaCrawler`。
 - 进入本机项目目录。先检查 `git status --short --branch`，保留现有本地修改。
 - 需要 Python 3.11、uv、Node 22 和 cloudflared。先用 `command -v uv`、`node --version`、`command -v cloudflared` 检查已有工具；没有工具时按官方说明安装。已有 Homebrew 的 Mac 可按需使用 `brew install uv node@22 cloudflared`。不要重复替换已有可用环境。
 
@@ -113,7 +115,7 @@ cloudflared tunnel --url http://127.0.0.1:8081 --http-host-header mediacrawler-w
 
 只有这些验收完成后，才能称为已完成远程部署。Mac 需开机、联网并保持所需用户会话；睡眠或退出登录会影响工作台。Worker、Access 与 Tunnel 的免费额度和条款以开通时实际账号为准，轮询请求也会占用 Worker 配额。
 
-后续绑定自有域名时，按照 `REMOTE_WORKBENCH.md` 改用固定 Tunnel，更新 Access 应用及 MC_PUBLIC_ORIGIN，并重新验证角色、Origin 与 CSRF。没有自动公开工作台、关闭鉴权或绕过平台登录的步骤。
+后续绑定自有域名时，按照 [远程工作台说明](REMOTE_WORKBENCH.md) 改用固定 Tunnel，更新 Access 应用及 MC_PUBLIC_ORIGIN，并重新验证角色、Origin 与 CSRF。没有自动公开工作台、关闭鉴权或绕过平台登录的步骤。
 
 ## 本次验证范围
 

@@ -1,5 +1,7 @@
 # 远程访问采集电脑上的 MediaCrawler
 
+> 本文命令及行内文件路径均以项目根目录为基准。
+
 本版本让手机、平板和其他电脑通过 HTTPS 浏览器访问指定电脑的工作台。采集进程、平台登录浏览器、SQLite、草稿与素材均留在采集电脑。Cloudflare 转发网页访问内容，不建立云端采集数据库副本。浏览器关闭或掉线不会主动停止已提交任务。
 
 ## 入口与执行器
@@ -123,7 +125,7 @@ uv run --frozen python -m api.backup --env-file /absolute/private/path/remote.en
 
 不存在的源会跳过，不会创建空源；已有目标不会覆盖。两个数据库是分别一致的在线备份，不保证跨库同一瞬间；如需同一业务切面，先停止采集。工具只备份 SQLite，`data/`、本机浏览器配置、私有环境与隧道凭据需要另行安全备份。可通过当前操作系统计划任务定期运行备份命令，建议另一磁盘。
 
-恢复前停止应用、Tunnel 和采集进程，保留故障库副本；检查备份 `PRAGMA integrity_check` 后复制回对应路径，避免旧 WAL 混入。恢复会回退备份后的任务、数据和幂等记录；恢复后的旧请求不应由客户端自动再次提交。结构新增采用 `CREATE TABLE/INDEX IF NOT EXISTS`，原有草稿和任务文档保留；SQLite 分析迁移说明继续见 `ANALYTICS.md`。
+恢复前停止应用、Tunnel 和采集进程，保留故障库副本；检查备份 `PRAGMA integrity_check` 后复制回对应路径，避免旧 WAL 混入。恢复会回退备份后的任务、数据和幂等记录；恢复后的旧请求不应由客户端自动再次提交。结构新增采用 `CREATE TABLE/INDEX IF NOT EXISTS`，原有草稿和任务文档保留；SQLite 分析迁移说明继续见 [分析说明](../workbench/ANALYTICS.md)。
 
 ## 自动化验证与本机最终验收
 
@@ -152,8 +154,8 @@ npm --prefix webui run build
 
 ## 没有自有域名的 macOS 临时部署
 
-使用 Cloudflare 提供的 `workers.dev` 入口、Access 与 Mac Quick Tunnel 的步骤见 [macOS 临时部署说明](deploy/remote/MACOS_WORKERS_DEV.md)。不要将 Quick Tunnel 直接接到无鉴权的本机端口。临时 Tunnel 重启可能换地址，必须更新固定 Worker 上游；此路径尚待真实 Cloudflare 账号和 Mac 验收。
+使用 Cloudflare 提供的 `workers.dev` 入口、Access 与 Mac Quick Tunnel 的步骤见 [macOS 临时部署说明](MACOS_WORKERS_DEV.md)。不要将 Quick Tunnel 直接接到无鉴权的本机端口。临时 Tunnel 重启可能换地址，必须更新固定 Worker 上游；此路径尚待真实 Cloudflare 账号和 Mac 验收。
 
 ## macOS 独立启动程序
 
-工作台和 Tunnel 分别使用独立的英文命名 Start、Stop、Status 程序。先启动工作台，需要公网访问时再启动 Tunnel。Tunnel 失败或停止不会关闭工作台；只有 Tunnel 程序负责更新 Worker 上游地址。安装与使用步骤见 [macOS 独立启动说明](deploy/remote/MACOS_LAUNCHER.md)。仍保留 Access 保护和本机 Wrangler 授权，不自动开始采集。
+工作台和 Tunnel 分别使用独立的英文命名 Start、Stop、Status 程序。先启动工作台，需要公网访问时再启动 Tunnel。Tunnel 失败或停止不会关闭工作台；只有 Tunnel 程序负责更新 Worker 上游地址。安装与使用步骤见 [macOS 独立启动说明](MACOS_LAUNCHER.md)。仍保留 Access 保护和本机 Wrangler 授权，不自动开始采集。

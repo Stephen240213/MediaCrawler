@@ -1,5 +1,7 @@
 # ContentRemixAgent — 第一阶段部署与使用说明
 
+> 本文命令及行内文件路径均以项目根目录为基准。
+
 ## 已实现的功能
 
 工作台导航新增 **AI 内容分析 / ContentRemixAgent**。第一版支持：
