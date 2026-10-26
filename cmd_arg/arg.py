@@ -353,8 +353,8 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
                 parsed_filters = XhsSearchFilters.model_validate_json(xhs_filters).model_dump()
             except ValidationError as exc:
                 raise typer.BadParameter(str(exc), param_hint='--xhs_filters') from exc
-            if platform != PlatformEnum.XHS or crawler_type != CrawlerTypeEnum.SEARCH or start != 1:
-                raise typer.BadParameter('Browser filters require --platform xhs --type search --start 1')
+            if platform != PlatformEnum.XHS or crawler_type != CrawlerTypeEnum.SEARCH:
+                raise typer.BadParameter('Browser filters require --platform xhs --type search')
         config.XHS_SEARCH_FILTERS = parsed_filters
         enable_comment = _to_bool(get_comment)
         enable_sub_comment = _to_bool(get_sub_comment)

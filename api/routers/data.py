@@ -34,6 +34,7 @@ def get_file_info(file_path: Path) -> dict:
     """Get file information"""
     stat = file_path.stat()
     record_count = None
+    display_name = None
 
     # Try to get record count
     try:
@@ -42,6 +43,9 @@ def get_file_info(file_path: Path) -> dict:
                 data = json.load(f)
                 if isinstance(data, list):
                     record_count = len(data)
+                elif isinstance(data,dict) and file_path.parent.name=='search_metadata':
+                    display_name=str(data.get('keyword') or '网页搜索')[:120]+' · 检索记录'
+                    if data.get('membership_version')==1 and isinstance(data.get('members'),list):record_count=len(data['members'])
         elif file_path.suffix == ".jsonl":
             with open(file_path, "r", encoding="utf-8") as f:
                 record_count = sum(1 for line in f if line.strip())
@@ -52,6 +56,7 @@ def get_file_info(file_path: Path) -> dict:
         pass
 
     return {
+        "display_name": display_name,
         "name": file_path.name,
         "path": str(file_path.relative_to(DATA_DIR)),
         "size": stat.st_size,
@@ -74,6 +79,8 @@ async def list_data_files(platform: Optional[str] = None, file_type: Optional[st
         root_path = Path(root)
         for filename in filenames:
             file_path = root_path / filename
+            if file_path.is_symlink() or not file_path.resolve().is_relative_to(DATA_DIR.resolve()):
+                continue
             if file_path.suffix.lower() not in supported_extensions:
                 continue
 
@@ -220,6 +227,8 @@ async def get_data_stats():
         root_path = Path(root)
         for filename in filenames:
             file_path = root_path / filename
+            if file_path.is_symlink() or not file_path.resolve().is_relative_to(DATA_DIR.resolve()):
+                continue
             if file_path.suffix.lower() not in supported_extensions:
                 continue
 

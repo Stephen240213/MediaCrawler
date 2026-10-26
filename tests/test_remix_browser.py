@@ -36,6 +36,14 @@ with sqlite3.connect(analytics.db_path()) as db:
     db.execute('CREATE TABLE xhs_note(note_id TEXT,desc TEXT,creator_hash TEXT)')
     db.execute('INSERT INTO xhs_note VALUES (?,?,?)',('fixture-note','提出路线问题，然后展示安排方法。','0123456789abcdef'))
     schema.save(db,schema.normalize(dict(platform='xhs',content_id='fixture-note',comment_id='comment-1',body='路线怎么安排？'),kind='comment'),kind='comment')
+from api.services import workbench_store as wb_store,collection_batches
+fixture_task=dict(id='b'*32,platform='xhs',crawler_type='search',target='测试旅行批次',started_at='2026-10-26T01:00:00Z',finished_at='2026-10-26T01:01:00Z',outcome='completed',exit_code=0,membership_version=1,dataset_counts={'total':1,'reused':1},effective_options={'start_page':2,'max_notes_count':30},xhs_filters={'max_scrolls':30})
+wb_store.save_document('task',fixture_task)
+collection_batches.record(fixture_task['id'],collection_batches.ContentEvent(content_id='fixture-note',keyword='旅行',action='reused',title='测试旅行笔记'))
+exports=root/'media'/'xhs'/'search_metadata';exports.mkdir(parents=True)
+import json
+(exports/('b'*32+'_1.json')).write_text(json.dumps(dict(keyword='测试旅行批次',task_id='b'*32,membership_version=1,members=[{'content_id':'fixture-note'}])))
+(root/'media'/'xhs'/'contents.json').write_text(json.dumps([{'title':'旅行资料','content_id':'fixture-note'}]))
 async def model(evidence):
     await asyncio.sleep(.3)
     return report(evidence),{'total_tokens':123},'browser-fixture-model'

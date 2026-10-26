@@ -1,157 +1,31 @@
-import { useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { useTranslation } from 'react-i18next'
-import { FolderOpen, RefreshCw } from 'lucide-react'
-import { dataApi } from '@/lib/api'
-import { FileCard } from './FileCard'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import {useMemo,useState} from 'react'
+import {useQuery} from '@tanstack/react-query'
+import {FolderOpen,RefreshCw,FileJson,FileSpreadsheet,Download,Eye,Search,X} from 'lucide-react'
+import {dataApi} from '@/lib/api'
+import {formatFileSize,formatDateTime} from '@/lib/utils'
+import {errorMessage} from '@/lib/workbench'
+import type {DataFile} from '@/types/crawler'
 
-// 从文件名提取类别
-function extractCategory(filename: string): string {
-  // 文件名格式: search_comments_xxx, search_creators_xxx, search_videos_xxx 等
-  const match = filename.match(/^(search_\w+?)_/)
-  if (match) {
-    return match[1]
-  }
-  // 其他格式尝试提取前缀
-  const parts = filename.split('_')
-  if (parts.length >= 2) {
-    return `${parts[0]}_${parts[1]}`
-  }
-  return 'other'
+function category(file:DataFile){
+ if(file.path.includes('/search_metadata/'))return '搜索记录'
+ if(/comment/i.test(file.name))return '评论数据'
+ if(/creator/i.test(file.name))return '作者数据'
+ return '内容数据'
 }
-
-// 类别显示名称
-function getCategoryLabel(category: string): string {
-  const labels: Record<string, string> = {
-    'search_comments': 'Comments',
-    'search_creators': 'Creators',
-    'search_videos': 'Videos',
-    'search_contents': 'Contents',
-    'search_notes': 'Notes',
-    'other': 'Other',
-  }
-  return labels[category] || category.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-}
-
-export function DataExplorer() {
-  const { t } = useTranslation('data')
-  const [activeTab, setActiveTab] = useState<string>('all')
-
-  const { data, isLoading, refetch, isRefetching } = useQuery({
-    queryKey: ['dataFiles'],
-    queryFn: async () => {
-      const { data } = await dataApi.getFiles()
-      return data.files
-    },
-  })
-
-  const files = data || []
-
-  // 按类别分组文件
-  const { categories, groupedFiles } = useMemo(() => {
-    const grouped: Record<string, typeof files> = {}
-
-    files.forEach(file => {
-      const category = extractCategory(file.name)
-      if (!grouped[category]) {
-        grouped[category] = []
-      }
-      grouped[category].push(file)
-    })
-
-    // 按文件数量排序类别
-    const sortedCategories = Object.keys(grouped).sort((a, b) =>
-      grouped[b].length - grouped[a].length
-    )
-
-    return { categories: sortedCategories, groupedFiles: grouped }
-  }, [files])
-
-  // 当前显示的文件
-  const displayFiles = activeTab === 'all' ? files : (groupedFiles[activeTab] || [])
-
-  return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <h2 className="text-lg font-mono font-bold text-cyber-neon-cyan glow-text-cyan tracking-wider">
-            {t('explorer.title')}
-          </h2>
-          <Badge variant="default" className="font-mono">
-            {t('explorer.records', { count: files.length })}
-          </Badge>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isRefetching}
-          className="font-mono"
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefetching ? 'animate-spin' : ''}`} />
-          {t('explorer.rescan')}
-        </Button>
-      </div>
-
-      {/* Category Tabs */}
-      {files.length > 0 && categories.length > 1 && (
-        <div className="flex items-center gap-2 mb-4 flex-wrap">
-          <button
-            onClick={() => setActiveTab('all')}
-            className={`px-3 py-1.5 rounded-md text-xs font-mono transition-all ${
-              activeTab === 'all'
-                ? 'bg-cyber-neon-cyan text-black font-bold'
-                : 'bg-cyber-bg-tertiary text-cyber-text-secondary hover:text-cyber-text-primary border border-cyber-border-subtle hover:border-cyber-neon-cyan/50'
-            }`}
-          >
-            {t('explorer.allCategories')} ({files.length})
-          </button>
-          {categories.map(category => (
-            <button
-              key={category}
-              onClick={() => setActiveTab(category)}
-              className={`px-3 py-1.5 rounded-md text-xs font-mono transition-all ${
-                activeTab === category
-                  ? 'bg-cyber-neon-cyan text-black font-bold'
-                  : 'bg-cyber-bg-tertiary text-cyber-text-secondary hover:text-cyber-text-primary border border-cyber-border-subtle hover:border-cyber-neon-cyan/50'
-              }`}
-            >
-              {getCategoryLabel(category)} ({groupedFiles[category].length})
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Content */}
-      {isLoading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-cyber-text-muted font-mono animate-pulse">
-            {t('explorer.loading')}
-          </div>
-        </div>
-      ) : files.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-center">
-          <div className="relative">
-            <FolderOpen className="w-16 h-16 text-cyber-neon-cyan/30 mb-4" />
-            <div className="absolute inset-0 blur-xl bg-cyber-neon-cyan/10" />
-          </div>
-          <h3 className="text-lg font-mono font-medium text-cyber-neon-cyan mb-2">
-            {t('explorer.noData')}
-          </h3>
-          <p className="text-sm text-cyber-text-muted max-w-md font-mono">
-            {t('explorer.noDataHint')}
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {displayFiles.map((file) => (
-            <FileCard key={file.path} file={file} />
-          ))}
-        </div>
-      )}
-    </div>
-  )
+export function DataExplorer(){
+ const [filter,setFilter]=useState('全部文件');const [search,setSearch]=useState('');const [page,setPage]=useState(1);const [preview,setPreview]=useState<DataFile|null>(null)
+ const files=useQuery({queryKey:['dataFiles'],queryFn:async()=>(await dataApi.getFiles()).data.files})
+ const data=files.data||[]
+ const categories=useMemo(()=>['全部文件',...new Set(data.map(category))],[data])
+ const selected=data.filter(f=>(filter==='全部文件'||category(f)===filter)&&(`${f.name} ${f.path}`.toLowerCase().includes(search.toLowerCase())))
+ const content=useQuery({queryKey:['dataFilePreview',preview?.path],enabled:!!preview,queryFn:async()=>(await dataApi.getFileContent(preview!.path,20)).data,retry:false})
+ const title=(file:DataFile)=>file.display_name||(category(file)==='搜索记录'?'网页搜索记录':/^(search_|detail_|creator_|contents|comments|[a-f0-9]{16,})/i.test(file.name)?category(file)+' · '+formatDateTime(file.modified_at):file.name.replace(/\.[^.]+$/,'').replace(/_/g,' '))
+ return <div className="wb-file-explorer"><div className="wb-files-heading"><div><span className="wb-eyebrow">LOCAL EXPORTS</span><h2>数据文件</h2><p>集中预览与导出；数据库中的内容可在上方资料库直接选择分析。</p></div><button className="wb-button" disabled={files.isFetching} onClick={()=>void files.refetch()}><RefreshCw size={15}/>重新扫描</button></div>
+ <div className="wb-files-summary"><div><strong>{data.length}</strong><span>本机文件</span></div><div><strong>{formatFileSize(data.reduce((n,f)=>n+f.size,0))}</strong><span>文件总量</span></div><div><strong>{new Set(data.map(f=>f.type)).size}</strong><span>保存格式</span></div></div>
+ <div className="wb-files-toolbar"><div className="wb-files-tabs">{categories.map(c=><button key={c} aria-pressed={filter===c} onClick={()=>{setFilter(c);setPage(1)}}>{c}<span>{c==='全部文件'?data.length:data.filter(f=>category(f)===c).length}</span></button>)}</div><label className="wb-files-search"><Search size={16}/><input aria-label="搜索数据文件" placeholder="搜索文件名或路径" value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}}/></label></div>
+ {files.isError&&<p className="wb-error" role="alert">文件列表读取失败，请重新扫描。</p>}{!selected.length&&<div className="wb-empty"><FolderOpen/><h3>{files.isLoading?'正在读取文件…':'没有匹配的文件'}</h3><p>调整搜索条件，或先采集并导出数据。</p></div>}
+ <div className="wb-file-grid">{selected.slice((page-1)*12,page*12).map(file=>{const Icon=['xls','xlsx','csv'].includes(file.type)?FileSpreadsheet:FileJson;return <article className="wb-export-card" key={file.path}><div className="wb-export-card-top"><span className="wb-export-icon"><Icon size={22}/></span><span className="wb-file-format">{file.type.toUpperCase()}</span></div><h3 title={file.name}>{title(file)}</h3><p className="wb-export-path" title={file.path}>{file.path}</p><div className="wb-export-meta"><span>{formatFileSize(file.size)}</span><span>{file.record_count!=null?`${file.record_count} 条记录`:category(file)}</span></div><p className="wb-export-time">{formatDateTime(file.modified_at)}</p><div className="wb-export-actions"><button className="wb-button" onClick={()=>setPreview(file)}><Eye size={15}/>预览</button><a className="wb-button" href={dataApi.getDownloadUrl(file.path.split('/').map(encodeURIComponent).join('/'))} target="_blank" rel="noreferrer"><Download size={15}/>下载</a></div></article>})}</div>
+ <div className="an-actions"><span>{selected.length} 个文件 · 第 {page} 页</span><button className="wb-button" disabled={page===1} onClick={()=>setPage(page-1)}>上一页文件</button><button className="wb-button" disabled={page*12>=selected.length} onClick={()=>setPage(page+1)}>下一页文件</button></div>
+ {preview&&<section className="wb-file-preview" aria-label="数据文件预览"><div className="wb-files-heading"><h3>{preview.name}</h3><button className="wb-button" onClick={()=>setPreview(null)}><X size={15}/>关闭预览</button></div>{content.isLoading?<p>正在读取前20条…</p>:content.isError?<p role="alert">{errorMessage(content.error)}</p>:<pre>{JSON.stringify(content.data,null,2)}</pre>}</section>}
+ </div>
 }

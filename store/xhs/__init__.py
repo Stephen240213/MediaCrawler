@@ -94,7 +94,10 @@ async def update_xhs_note(note_item: Dict):
         "xsec_token": note_item.get("xsec_token"),  # xsec_token
     }
     utils.logger.info(f"[store.xhs.update_xhs_note] xhs note: {local_db_item}")
+    from api.services.collection_batches import existing_note,emit
+    existed=existing_note(note_id)
     await XhsStoreFactory.create_store().store_content(local_db_item)
+    emit(note_id,local_db_item['title'],local_db_item['source_keyword'],'refreshed' if existed else 'new')
 
 
 async def batch_update_xhs_note_comments(note_id: str, comments: List[Dict]):

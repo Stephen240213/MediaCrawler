@@ -21,6 +21,13 @@ def research_discovery(search: str=Query('',max_length=200)):
     except ValueError as exc:raise HTTPException(409,str(exc)) from exc
 
 
+@router.get('/research/source-choices')
+def research_source_choices(search: str=Query('',max_length=200),keyword: str=Query('',max_length=200),task_id: str='',page: int=Query(1,ge=1)):
+    from api.services import collection_batches
+    try:return collection_batches.choices(search,keyword,task_id,page)
+    except ValueError as exc:raise HTTPException(404,str(exc)) from exc
+
+
 @router.get('/research/spaces')
 def research_spaces():return research.listing()
 

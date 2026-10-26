@@ -4,6 +4,7 @@ export interface XhsSearchFilters {
   publish_time: string
   search_scope: string
   location: string
+  refresh_existing?: boolean
   max_scrolls: number
   timeout_seconds: number
 }
@@ -44,6 +45,7 @@ export interface LogEntry {
 }
 
 export interface DataFile {
+  display_name?: string | null
   name: string
   path: string
   size: number

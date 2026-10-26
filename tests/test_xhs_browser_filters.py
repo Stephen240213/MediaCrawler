@@ -28,20 +28,22 @@ def test_invalid_filters_rejected(change):
         XhsSearchFilters(**change)
 
 
-@pytest.mark.parametrize('change', [{'platform':'dy'}, {'crawler_type':'detail'}, {'start_page':2}, {'keywords':''}])
+@pytest.mark.parametrize('change', [{'platform':'dy'}, {'crawler_type':'detail'}, {'start_page':0}, {'keywords':''}])
 def test_unsupported_request_rejected(change):
     with pytest.raises(ValidationError):
         CrawlerStartRequest.model_validate({'platform':'xhs', 'keywords':'露营', 'xhs_filters':{}, **change})
 
 
-def test_contract_options_and_command():
+def test_contract_options_and_command(tmp_path,monkeypatch):
+    monkeypatch.setattr(workbench_store,'DB_PATH',tmp_path/'workbench.sqlite3')
     with TestClient(app) as client:
         groups=client.get('/api/config/xhs-search-filters').json()['groups']
     assert len(groups)==5
-    request=CrawlerStartRequest(platform='xhs', keywords='露营', xhs_filters=XhsSearchFilters(publish_time='week'))
+    request=CrawlerStartRequest(platform='xhs', keywords='露营', start_page=2,max_notes_count=30,xhs_filters=XhsSearchFilters(publish_time='week',max_scrolls=30))
     command=CrawlerManager()._build_command(request)
     filters=json.loads(command[command.index('--xhs_filters')+1])
-    assert filters['publish_time']=='week'
+    assert filters['publish_time']=='week' and filters['max_scrolls']==30
+    assert command[command.index('--start')+1]=='2' and command[command.index('--crawler_max_notes_count')+1]=='30'
     assert '--xhs_filters' not in CrawlerManager()._build_command(CrawlerStartRequest(platform='bili'))
 
 
@@ -49,8 +51,8 @@ def test_contract_options_and_command():
 async def test_cli_contract_and_reset():
     original={k:v for k,v in vars(config).items() if k.isupper()}
     try:
-        await parse_cmd(['--platform','xhs','--type','search','--keywords','露营','--xhs_filters','{"note_type":"image"}'])
-        assert config.XHS_SEARCH_FILTERS['note_type']=='image'
+        await parse_cmd(['--platform','xhs','--type','search','--keywords','露营','--start','2','--xhs_filters','{"note_type":"image"}'])
+        assert config.XHS_SEARCH_FILTERS['note_type']=='image' and config.START_PAGE==2
         await parse_cmd(['--platform','bili'])
         assert config.XHS_SEARCH_FILTERS is None
     finally:
@@ -75,6 +77,8 @@ def test_fingerprint_ignores_page_but_detects_filter_change():
 @pytest.mark.asyncio
 @pytest.mark.parametrize('items,limit,expected', [([{'id':'one','xsec_token':'t'},{'id':'one','xsec_token':'t'},{'id':'two','xsec_token':'u'}],1,['one']),([{'id':'last','xsec_token':'t'}],5,['last'])])
 async def test_core_keeps_last_page_deduplicates_and_honors_small_limit(tmp_path,monkeypatch,items,limit,expected):
+    from api.services import analytics
+    monkeypatch.setitem(analytics.sqlite_db_config,'db_path',str(tmp_path/'collection.db'))
     monkeypatch.setattr(config,'XHS_SEARCH_FILTERS',XhsSearchFilters().model_dump())
     monkeypatch.setattr(config,'KEYWORDS','露营')
     monkeypatch.setattr(config,'CRAWLER_MAX_NOTES_COUNT',limit)

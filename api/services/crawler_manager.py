@@ -79,7 +79,19 @@ class CrawlerManager:
 
     def _create_log_entry(self, message: str, level: str = "info") -> LogEntry:
         """Create log entry"""
+        raw_message=message
         message = redact(message, (self.current_config.cookies if self.current_config else '',))
+        if message.startswith('MC_CONTENT ') and self.task:
+            from . import collection_batches
+            try:
+                event=collection_batches.ContentEvent.model_validate_json(raw_message.removeprefix('MC_CONTENT '))
+                event.title=redact(event.title,(self.current_config.cookies if self.current_config else '',))
+                collection_batches.record(self.task['id'],event)
+                snapshot=collection_batches.members(self.task['id'])
+                self.task['dataset_counts']={**snapshot['counts'],'total':snapshot['total']}
+                workbench_store.save_document('task',self.task)
+                message=f'批次资料 · {event.action} · {event.content_id}'
+            except ValueError:pass
         if message.startswith('MC_LOGIN_STATE ') and self.task:
             try:
                 event=json.loads(message.removeprefix('MC_LOGIN_STATE '))
@@ -149,6 +161,10 @@ class CrawlerManager:
                          'login_state':'unknown', 'login_message':'需要登录或验证码时，请在采集电脑的浏览器完成；工作台不远程控制桌面。'}
             if config.xhs_filters:
                 candidate['xhs_filters']=config.xhs_filters.model_dump()
+            import config as runtime_config
+            candidate['effective_options']=dict(start_page=config.start_page,max_notes_count=config.max_notes_count if config.max_notes_count is not None else runtime_config.CRAWLER_MAX_NOTES_COUNT,
+                max_comments_count=config.max_comments_count if config.max_comments_count is not None else runtime_config.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES,enable_media=config.enable_media,enable_comments=config.enable_comments,save_option=config.save_option.value)
+            if config.platform.value=='xhs':candidate['membership_version']=1
             admission, document = workbench_store.reserve_task(candidate,actor,request_key,fingerprint)
             if admission == 'conflict':
                 raise ValueError('同一请求标识不能用于不同参数')

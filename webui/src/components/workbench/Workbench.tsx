@@ -5,6 +5,9 @@ import { useCrawlerStore } from '@/store/crawlerStore'
 import { useCrawlerLogs } from '@/hooks/useCrawler'
 import { useLogWebSocket } from '@/hooks/useWebSocket'
 import api from '@/lib/api'
+import { type ResearchRequest } from './ResearchWorkbench'
+import {ContentLibrary} from './ContentLibrary'
+import {type Task,errorMessage} from '@/lib/workbench'
 import { type Asset } from '@/lib/workbench'
 import { Collector, collectionTools } from './Collector'
 import { TaskPanel, TaskHistory } from './TaskPanel'
@@ -36,6 +39,8 @@ export function Workbench({onLicense}: {onLicense: () => void}) {
   const [page, setPage] = useState<Page>('collect')
   const [assetRequest, setAssetRequest] = useState<{id: string; sequence: number} | null>(null)
   const [remixRequest,setRemixRequest]=useState<{id:string;projectId:string;sequence:number}|null>(null)
+  const [researchRequest,setResearchRequest]=useState<ResearchRequest|null>(null)
+  const [datasetId,setDatasetId]=useState('');const [libraryView,setLibraryView]=useState<'notes'|'files'>('files');const [navigationError,setNavigationError]=useState('')
   const [draftRequest,setDraftRequest]=useState<{id:string;sequence:number}|null>(null)
   const update = useCrawlerStore(s => s.updateConfig)
   const mode = useCrawlerStore(s => s.config.crawler_type)
@@ -44,6 +49,8 @@ export function Workbench({onLicense}: {onLicense: () => void}) {
   useLogWebSocket()
   useCrawlerLogs()
   const useAsset = (asset: Asset) => {setAssetRequest({id: asset.id, sequence: Date.now()}); setPage('drafts')}
+  const research=(request:ResearchRequest)=>{setRemixRequest(null);setResearchRequest(request);setPage('remix')}
+  const researchTask=async(task:Task)=>{try{const {data}=await api.get<{exact:boolean;items:{content_id:string;available:boolean}[]}>(`/workbench/tasks/${task.id}/dataset`);research({taskId:task.id,ids:data.items.filter(i=>i.available).map(i=>i.content_id).slice(0,200),exact:data.exact,name:task.target+' · 批次研究',sequence:Date.now()})}catch(e){setNavigationError(errorMessage(e))}}
   const active = pages.find(p => p.id === page)!
   return <div className="workbench">
     <aside className="wb-sidebar"><a className="wb-brand" href="#" onClick={e => {e.preventDefault();setPage('collect')}}><span className="wb-brand-mark">M</span><span>MediaCrawler<small>本机内容工作台</small></span></a>
@@ -52,8 +59,8 @@ export function Workbench({onLicense}: {onLicense: () => void}) {
     </aside>
     <div className="wb-main"><header className="wb-topbar"><span>工作空间 <span className="wb-slash">/</span> <strong>{active.label}</strong></span><span className={`wb-service ${online ? '' : 'offline'}`}><i/>{isError ? '本机服务离线' : online ? '本机服务在线' : '正在连接服务'}<span>127.0.0.1</span></span></header>
       <main className="wb-content"><div className="wb-page-heading"><div><p className="wb-eyebrow">YOUR LOCAL WORKSPACE</p><h1>{active.label}</h1><p>{page === 'projects' ? '串联资料、编辑、成品与发布结果。' : page === 'remix' ? '从真实素材出发，生成带引用的内容拆解报告。' : page === 'analytics' ? '基于本机 SQLite 采集数据，查看趋势、互动与评论。' : page === 'collect' ? '从内容发现到灵感整理，让每一步清晰可见。' : page === 'drafts' ? '把灵感整理为草稿，一边编辑，一边预览。' : page === 'assets' ? '管理采集媒体与本机图片，随时用于草稿。' : page === 'tasks' ? '查看真实执行结果，回溯每次采集。' : '预览与导出已保存的采集数据。'}</p></div><span className="wb-local-label"><Monitor size={16}/>本机工作台</span></div>
-      <RemoteStatus/>
-      {page === 'projects' && <ContentProjects onJob={(id,projectId)=>{setRemixRequest({id,projectId,sequence:Date.now()});setPage('remix')}} onDraft={id=>{setDraftRequest({id,sequence:Date.now()});setPage('drafts')}}/>}
+      <RemoteStatus/>{navigationError&&<p className="wb-error" role="alert">{navigationError}</p>}
+      {page === 'projects' && <ContentProjects onJob={(id,projectId)=>{setResearchRequest(null);setRemixRequest({id,projectId,sequence:Date.now()});setPage('remix')}} onDraft={id=>{setDraftRequest({id,sequence:Date.now()});setPage('drafts')}}/>}
       {page === 'collect' && <>
         <section className="wb-hero"><span className="wb-hero-icon"><Sparkles size={27}/></span><div><h2>发现内容，沉淀灵感</h2><p>搜索内容、采集评论，将图片与想法整理成自己的草稿。</p><span>内容采集 <i/> 本机素材 <i/> 草稿预览</span></div><button className="wb-button primary" onClick={() => setPage('drafts')}><FilePenLine size={16}/>打开草稿 <ArrowUpRight size={15}/></button></section>
         <div className="wb-workspace-tabs"><span className="selected">采集工具</span><button onClick={() => setPage('data')}>数据与结果 <ArrowUpRight size={13}/></button><span className="wb-tabs-status">{status === 'running' ? '任务执行中' : status === 'stopping' ? '任务停止中' : '选择工具开始采集'}</span></div>
@@ -61,10 +68,10 @@ export function Workbench({onLicense}: {onLicense: () => void}) {
       </>}
       <div hidden={page !== 'drafts'}><DraftStudio assetRequest={assetRequest} openRequest={draftRequest}/></div>
       {page === 'assets' && <AssetLibrary onUse={useAsset}/>}
-      {page === 'data' && <section className="wb-card wb-data-panel"><DataExplorer/></section>}
+      {page === 'data' && <><div className="wb-library-tabs"><button className="wb-button" aria-pressed={libraryView==='notes'} onClick={()=>setLibraryView('notes')}>内容资料库</button><button className="wb-button" aria-pressed={libraryView==='files'} onClick={()=>setLibraryView('files')}>导出数据文件</button>{datasetId&&<button className="wb-button" onClick={()=>setDatasetId('')}>查看全部资料</button>}</div>{libraryView==='notes'?<ContentLibrary key={datasetId||'all'} taskId={datasetId} onResearch={research}/>:<section className="wb-card wb-data-panel"><DataExplorer/></section>}</>}
       {page === 'analytics' && <Analytics/>}
-      {page === 'remix' && <ContentRemixAgent openRequest={remixRequest}/>}
-      {page === 'tasks' && <><TaskHistory/><div className="wb-history-current"><TaskPanel/></div></>}
+      {page === 'remix' && <ContentRemixAgent openRequest={remixRequest} researchRequest={researchRequest}/>}
+      {page === 'tasks' && <><TaskHistory onDataset={id=>{setDatasetId(id);setLibraryView('notes');setPage('data')}} onResearch={task=>void researchTask(task)}/><div className="wb-history-current"><TaskPanel/></div></>}
       <footer className="wb-footer">MediaCrawler · 本机内容工作台<span>内容采集 · 素材整理 · 草稿预览</span></footer>
       </main>
     </div>

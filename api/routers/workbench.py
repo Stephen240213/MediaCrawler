@@ -158,6 +158,13 @@ def list_tasks():
     return {'tasks': sorted(documents, key=lambda t: t['started_at'], reverse=True)[:100]}
 
 
+@router.get('/tasks/{task_id}/dataset')
+def task_dataset(task_id: str):
+    from ..services import collection_batches
+    try:return collection_batches.members(task_id)
+    except ValueError as exc:raise HTTPException(404,str(exc)) from exc
+
+
 @router.delete('/tasks/{task_id}')
 def delete_task(task_id: str):
     from ..services import crawler_manager

@@ -7,7 +7,7 @@ import {BriefForm, defaultBrief, EvidenceCoverage, KnowledgePanel, RewriteResult
 import {ProfilePanel, CommentTopics, PublicationPanel} from './remix-learning'
 import {ProductionPanel} from './remix-production'
 import {useContentProjects} from './ContentProjects'
-import {ResearchWorkbench} from './ResearchWorkbench'
+import {ResearchWorkbench,type ResearchRequest} from './ResearchWorkbench'
 import './remix.css'
 
 type Config = {provider_host?: string; model: string; model_ready: boolean; issues: string[]; asr: string; asr_model: string; asr_ready: boolean; ffmpeg_ready: boolean; cloud_audio: boolean; max_seconds: number; chunk_bytes: number}
@@ -22,11 +22,12 @@ const stages: Record<string,string> = {queued:'等待执行',media:'准备音频
 const active = (job?: Job) => job && ['running','queued'].includes(job.status)
 const time = (seconds: number) => `${Math.floor(seconds/60)}:${Math.floor(seconds%60).toString().padStart(2,'0')}`
 
-export function ContentRemixAgent({openRequest}:{openRequest?:{id:string;projectId:string;sequence:number}|null}) {
+export function ContentRemixAgent({openRequest,researchRequest}:{openRequest?:{id:string;projectId:string;sequence:number}|null;researchRequest?:ResearchRequest|null}) {
   const [dimension,setDimension]=useState<'single'|'account'|'topic'>('single')
   const [shared,setShared]=useState(false)
   useEffect(()=>{if(openRequest){setDimension('single');setShared(false)}},[openRequest?.sequence])
-  return <><section className="wb-card remix-card research-nav" aria-label="研究维度"><h2>AI 内容研究与创作</h2><div className="an-actions">{([['single','单条内容'],['account','单账号'],['topic','专题与类目资产']] as const).map(([value,label])=><button key={value} className="wb-button" aria-pressed={dimension===value} onClick={()=>setDimension(value)}>{label}</button>)}</div><p className="wb-hint">三种范围共享中性素材理解。研究账号按真实发布者识别；创作账号画像在按需改写时使用。</p>{dimension==='single'&&<div className="an-actions"><button className="wb-button" aria-pressed={!shared} onClick={()=>setShared(false)}>深度拆解与按需改写</button><button className="wb-button" aria-pressed={shared} onClick={()=>setShared(true)}>共享素材研究（不生成改写）</button></div>}</section>{dimension==='single'&&!shared?<SingleContentAnalysis openRequest={openRequest}/>:<ResearchWorkbench key={dimension} kind={dimension}/>}</>
+  useEffect(()=>{if(researchRequest){setDimension('topic');setShared(true)}},[researchRequest?.sequence])
+  return <><section className="wb-card remix-card research-nav" aria-label="研究维度"><h2>AI 内容研究与创作</h2><div className="an-actions">{([['single','单条内容'],['account','单账号'],['topic','专题与类目资产']] as const).map(([value,label])=><button key={value} className="wb-button" aria-pressed={dimension===value} onClick={()=>setDimension(value)}>{label}</button>)}</div><p className="wb-hint">三种范围共享中性素材理解。研究账号按真实发布者识别；创作账号画像在按需改写时使用。</p>{dimension==='single'&&<div className="an-actions"><button className="wb-button" aria-pressed={!shared} onClick={()=>setShared(false)}>深度拆解与按需改写</button><button className="wb-button" aria-pressed={shared} onClick={()=>setShared(true)}>共享素材研究（不生成改写）</button></div>}</section>{dimension==='single'&&!shared?<SingleContentAnalysis openRequest={openRequest}/>:<ResearchWorkbench key={dimension+String(researchRequest?.sequence||'')} kind={dimension} request={dimension==='topic'?researchRequest:undefined}/>}</>
 }
 
 function SingleContentAnalysis({openRequest}:{openRequest?:{id:string;projectId:string;sequence:number}|null}) {

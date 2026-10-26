@@ -15,6 +15,6 @@ uv run --frozen pytest \
   tests/test_remix_moss.py tests/test_remix_production.py tests/test_remix_responses.py \
   tests/test_remix_source_links.py tests/test_remote_access.py \
   tests/test_content_projects.py tests/test_asset_catalog.py tests/test_workspace_backup.py \
-  tests/test_remix_research.py tests/test_analytics.py -q
+  tests/test_remix_research.py tests/test_analytics.py tests/test_collection_batches.py -q
 # Requires the production bundle built above. Browser requests use local fixtures.
-uv run --frozen pytest tests/test_remix_browser.py tests/test_projects_browser.py tests/test_research_browser.py -q
+uv run --frozen pytest tests/test_remix_browser.py tests/test_projects_browser.py tests/test_research_browser.py tests/test_collection_browser.py -q

@@ -28,6 +28,7 @@ def test_research_topic_incremental_account_reuse_and_project_pin(remix_app,tmp_
             expect(page.get_by_role('button',name=name,exact=True)).to_be_visible()
         page.get_by_role('button',name='专题与类目资产',exact=True).click()
         page.get_by_label('研究名称',exact=True).fill('旅居增量专题')
+        page.get_by_label('资料纳入方式',exact=True).select_option('rules')
         keyword=page.get_by_label('采集来源关键词',exact=True)
         keyword.press_sequentially('旅行\n旅居',delay=10)
         expect(keyword).to_have_value('旅行\n旅居')

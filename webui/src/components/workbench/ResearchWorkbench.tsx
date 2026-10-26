@@ -4,10 +4,12 @@ import api from '@/lib/api'
 import {canOperate, useSession} from '@/lib/session'
 import {errorMessage} from '@/lib/workbench'
 import {useContentProjects} from './ContentProjects'
+import {SourcePicker} from './SourcePicker'
 import {RecoveryNotice, useEditorRecovery} from './editor-recovery'
 
 type Kind='single'|'account'|'topic'
-type Scope={name:string;kind:Kind;content_id:string;account_id:string;keywords:string[];contains:string[];excludes:string[];include_ids:string[];exclude_ids:string[];start:string;end:string;archived:boolean;version:number}
+export type ResearchRequest={taskId?:string;ids?:string[];name?:string;exact?:boolean;sequence:number}
+type Scope={selection_mode:'rules'|'selected'|'task';task_id:string;name:string;kind:Kind;content_id:string;account_id:string;keywords:string[];contains:string[];excludes:string[];include_ids:string[];exclude_ids:string[];start:string;end:string;archived:boolean;version:number}
 type Space=Scope&{id:string}
 type Discovery={accounts:{id:string;name:string;count:number}[];unknown_accounts:number;scanned:number;selector_limited:boolean;keywords:string[];total:number;sources:{content_id:string;title:string}[]}
 type Evidence={id:string;text:string;source_key:string;kind:string}
@@ -19,16 +21,16 @@ type Plan={plan_token:string;total:number;counts:Record<string,number>;max_calls
 const states:Record<string,string>={queued:'排队中',running:'研究中',completed:'完成',partial:'部分完成',failed:'失败',pending:'待处理',interrupted:'已中断',cancelled:'已取消'}
 const reasons:Record<string,string>={new:'新纳入',body_changed:'正文变化',comments_changed:'评论变化',metrics_changed:'仅互动变化',reused:'范围内未变化'}
 const names:Record<Kind,string>={single:'单条素材研究',account:'账号研究',topic:'专题研究'}
-const blank=(kind:Kind):Scope=>({name:'',kind,content_id:'',account_id:'',keywords:[],contains:[],excludes:[],include_ids:[],exclude_ids:[],start:'',end:'',archived:false,version:0})
+const blank=(kind:Kind):Scope=>({selection_mode:kind==='topic'?'selected':'rules',task_id:'',name:'',kind,content_id:'',account_id:'',keywords:[],contains:[],excludes:[],include_ids:[],exclude_ids:[],start:'',end:'',archived:false,version:0})
 const words=(value:string)=>value.split(/[\n,，]/).map(v=>v.trim()).filter(Boolean)
 const running=(run:Run)=>['queued','running'].includes(run.status)
 
-export function ResearchWorkbench({kind}:{kind:Kind}){
+export function ResearchWorkbench({kind,request}:{kind:Kind;request?:ResearchRequest|null}){
  const writable=canOperate(useSession());const cache=useQueryClient()
  const [discoverySearch,setDiscoverySearch]=useState('');const [selected,setSelected]=useState('');const [notice,setNotice]=useState('');const [busy,setBusy]=useState(false)
  const [consent,setConsent]=useState(false);const [cap,setCap]=useState(20);const [revisionId,setRevisionId]=useState('');const [citation,setCitation]=useState('')
  const [assetPage,setAssetPage]=useState(1);const [search,setSearch]=useState('');const [category,setCategory]=useState('');const [project,setProject]=useState('')
- const request=useRef<{token:string;cap:number;key:string}|null>(null)
+ const submission=useRef<{token:string;cap:number;key:string}|null>(null)
  const discovery=useQuery({queryKey:['research-discovery',discoverySearch],queryFn:async()=>(await api.get<Discovery>('/remix/research/discovery',{params:{search:discoverySearch}})).data,retry:false})
  const spaces=useQuery({queryKey:['research-spaces'],queryFn:async()=>(await api.get<Space[]>('/remix/research/spaces')).data,retry:false})
  const detail=useQuery({queryKey:['research-space',selected],enabled:!!selected,queryFn:async()=>(await api.get<Detail>('/remix/research/spaces/'+selected)).data,refetchInterval:q=>q.state.data?.runs.some(running)?1500:false,retry:false})
@@ -39,14 +41,14 @@ export function ResearchWorkbench({kind}:{kind:Kind}){
  const projects=useContentProjects()
  const rev=revisionId?archivedRevision.data:detail.data?.latest
  const p=plan.data;const evidence=rev?.evidence.find(e=>e.id===citation)
- useEffect(()=>{setConsent(false);request.current=null},[p?.plan_token,selected,cap])
+ useEffect(()=>{setConsent(false);submission.current=null},[p?.plan_token,selected,cap])
  useEffect(()=>setAssetPage(1),[search,category,selected])
  const refresh=async()=>{await Promise.all([cache.invalidateQueries({queryKey:['research-space',selected]}),cache.invalidateQueries({queryKey:['research-plan',selected]}),cache.invalidateQueries({queryKey:['research-discovery']}),cache.invalidateQueries({queryKey:['research-spaces']}),cache.invalidateQueries({queryKey:['content-projects']})])}
  const action=async(fn:()=>Promise<void>)=>{setBusy(true);setNotice('');try{await fn()}catch(e){setNotice(errorMessage(e))}finally{setBusy(false)}}
  const submit=()=>action(async()=>{
   if(!p||!consent)return
-  if(request.current?.token!==p.plan_token||request.current.cap!==cap)request.current={token:p.plan_token,cap,key:crypto.randomUUID()}
-  await api.post(`/remix/research/spaces/${selected}/runs`,{plan_token:p.plan_token,max_calls:cap,consent,request_key:request.current.key})
+  if(submission.current?.token!==p.plan_token||submission.current.cap!==cap)submission.current={token:p.plan_token,cap,key:crypto.randomUUID()}
+  await api.post(`/remix/research/spaces/${selected}/runs`,{plan_token:p.plan_token,max_calls:cap,consent,request_key:submission.current.key})
   setConsent(false);setRevisionId('');setNotice('已冻结本批素材与评论范围，后台串行执行。执行期间新到资料进入下一批。');await refresh()
  })
  const refs=(ids:string[])=><span className="remix-citations">{ids.map(id=><button className="wb-button" key={id} onClick={()=>setCitation(id)}>引用 {id.slice(0,12)}</button>)}</span>
@@ -58,7 +60,7 @@ export function ResearchWorkbench({kind}:{kind:Kind}){
    <label>已保存的研究范围<select aria-label="已保存的研究范围" value={selected} onChange={e=>{setSelected(e.target.value);setRevisionId('');setCitation('')}}><option value="">新建范围</option>{spaces.data?.filter(s=>s.kind===kind).map(s=><option key={s.id} value={s.id}>{s.name}{s.archived?'（归档）':''}</option>)}</select></label>
   </section>
   {detail.isError&&<p className="wb-error" role="alert">研究范围读取失败。<button onClick={()=>void detail.refetch()}>重试</button></p>}
-  {(!selected||detail.data)&&<ScopeEditor key={selected||'new-'+kind} space={detail.data?.space} kind={kind} discovery={discovery.data} writable={writable&&!active} onSaved={async id=>{setSelected(id);setConsent(false);await refresh()}}/>}
+  {(!selected||detail.data)&&<ScopeEditor key={selected||'new-'+kind} space={detail.data?.space} kind={kind} discovery={discovery.data} request={request} writable={writable&&!active} onSaved={async id=>{setSelected(id);setConsent(false);await refresh()}}/>}
   {selected&&<section className="wb-card remix-card" aria-label="增量处理计划"><h2>本次增量范围</h2>{active?<p role="status">批次执行中，规则与范围已冻结。新到资料将在完成后重新预览。</p>:<><button className="wb-button" onClick={()=>void plan.refetch()}>预览新增与变化</button>{plan.isError&&<p role="alert">{errorMessage(plan.error)}</p>}{p&&<><p>{p.scope}</p><div className="remix-status"><span>纳入 {p.total}</span><span>待正文理解 {p.counts.material_pending||0}</span><span>正文可复用 {p.counts.material_reused||0}</span><span>待处理评论 {p.counts.comment_pending||0}</span><span>撤回 {p.counts.removed||0}</span></div><p>{p.cost}</p><p>模型：{p.config.model}。本轮模型调用上界 {p.max_calls} 次；实际取决于兼容缓存和受影响分组。此处限制调用次数，金额按供应商账单计算。</p>
     <details><summary>查看冻结前处理清单（{p.items.length} 条）</summary><div className="research-table-scroll"><table><thead><tr><th>素材</th><th>变化</th><th>正文</th><th>评论</th></tr></thead><tbody>{p.items.map(i=><tr key={i.content_id}><td>{i.title||i.content_id}</td><td>{reasons[i.reason]}</td><td>{i.material_pending?'待分析':'可复用'}{!i.body_available?' · 仅标题':''}{i.body_truncated?' · 截取前12000字':''}</td><td>新增处理 {i.comment_pending} · 样本 {i.sample_comments}/{i.saved_comments}</td></tr>)}</tbody></table></div>{p.removed.map(id=><p key={id}>撤回当前贡献：{id}（旧版本保留）</p>)}</details>
     <fieldset disabled={!writable||busy||detail.data?.space.archived}><label>本批模型调用上限<input aria-label="本批模型调用上限" type="number" min={1} max={40} value={cap} onChange={e=>setCap(Math.max(1,Math.min(40,Number(e.target.value)||1)))}/></label><label className="remix-check"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/>确认将本批正文、评论与结构化结果发送给配置的模型服务，可能产生费用；达到上限后停止</label><button className="wb-button primary" disabled={!consent} onClick={()=>void submit()}>仅分析新增与变化，并更新综合</button></fieldset></>}</>}
@@ -75,16 +77,16 @@ export function ResearchWorkbench({kind}:{kind:Kind}){
  </div>
 }
 
-function ScopeEditor({kind,space,discovery,writable,onSaved}:{kind:Kind;space?:Space;discovery?:Discovery;writable:boolean;onSaved:(id:string)=>Promise<void>}){
- const [form,setForm]=useState<Scope>(()=>space?{name:space.name,kind:space.kind,content_id:space.content_id,account_id:space.account_id,keywords:space.keywords,contains:space.contains,excludes:space.excludes,include_ids:space.include_ids,exclude_ids:space.exclude_ids,start:space.start,end:space.end,archived:space.archived,version:space.version}:blank(kind))
+function ScopeEditor({kind,space,discovery,writable,onSaved,request}:{kind:Kind;space?:Space;discovery?:Discovery;request?:ResearchRequest|null;writable:boolean;onSaved:(id:string)=>Promise<void>}){
+ const [form,setForm]=useState<Scope>(()=>space?{selection_mode:space.selection_mode||'rules',task_id:space.task_id||'',name:space.name,kind:space.kind,content_id:space.content_id,account_id:space.account_id,keywords:space.keywords,contains:space.contains,excludes:space.excludes,include_ids:space.include_ids,exclude_ids:space.exclude_ids,start:space.start,end:space.end,archived:space.archived,version:space.version}:{...blank(kind),...(request?{name:request.name||'所选资料研究',selection_mode:request.exact?'task' as const:'selected' as const,task_id:request.taskId||'',include_ids:request.ids||[]}: {})})
  const [busy,setBusy]=useState(false);const [notice,setNotice]=useState('')
  const recovery=useEditorRecovery('research',space?.id||'new-'+kind,form,setForm)
  const save=async()=>{setBusy(true);try{const data={...form};const response=space?await api.put<Space>('/remix/research/spaces/'+space.id,data):await api.post<Space>('/remix/research/spaces',data);setForm({...data,version:response.data.version});if(!space)await recovery.clear();await onSaved(response.data.id);setNotice('范围规则已保存。预览只读取本机资料，不调用模型。')}catch(e){setNotice(errorMessage(e))}finally{setBusy(false)}}
  return <section className="wb-card remix-card" aria-label="研究范围规则"><h2>{space?'编辑范围规则':'建立'+names[kind]}</h2><RecoveryNotice recovery={recovery}/><fieldset disabled={!writable||busy}><label>研究名称<input aria-label="研究名称" maxLength={150} value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label>
  {kind==='single'&&<label>研究素材 ID<input aria-label="研究素材" list="research-source-choices" value={form.content_id} onChange={e=>setForm({...form,content_id:e.target.value})}/><datalist id="research-source-choices">{discovery?.sources.map(s=><option key={s.content_id} value={s.content_id}>{s.title}</option>)}</datalist></label>}
  {kind==='account'&&<label>实际发布者<select aria-label="实际发布者" value={form.account_id} onChange={e=>setForm({...form,account_id:e.target.value})}><option value="">选择有可靠发布者 ID 的账号</option>{discovery?.accounts.map(a=><option key={a.id} value={a.id}>{a.name} · {a.id.slice(0,12)} · {a.count} 条</option>)}</select></label>}
- {kind==='topic'&&<><label>采集来源关键词（每行一个，任一命中）<RuleWords label="采集来源关键词" value={form.keywords} onChange={keywords=>setForm({...form,keywords})}/></label><p className="wb-hint">已有关键词：{discovery?.keywords.join('、')||'未保存来源关键词'}。历史只保留最后一个关键词的资料无法恢复更早关联；新保存的多关键词关联会持续保留。</p><label>人工纳入内容 ID（每行一个）<RuleWords label="人工纳入内容 ID" value={form.include_ids} onChange={include_ids=>setForm({...form,include_ids})}/></label></>}
- <div className="remix-form-grid"><label>正文或标题包含词（任一命中）<RuleWords label="正文或标题包含词" value={form.contains} onChange={contains=>setForm({...form,contains})}/></label><label>排除词（任一命中）<RuleWords label="排除词" value={form.excludes} onChange={excludes=>setForm({...form,excludes})}/></label><label>发布时间起<input type="date" value={form.start} onChange={e=>setForm({...form,start:e.target.value})}/></label><label>发布时间止<input type="date" value={form.end} onChange={e=>setForm({...form,end:e.target.value})}/></label></div><label>人工排除内容 ID（每行一个）<RuleWords label="人工排除内容 ID" value={form.exclude_ids} onChange={exclude_ids=>setForm({...form,exclude_ids})}/></label><p className="wb-hint">专题来源关键词与包含词共同筛选；人工纳入可跳过这两项，仍遵守时间与排除规则。</p><label className="remix-check"><input type="checkbox" checked={form.archived} onChange={e=>setForm({...form,archived:e.target.checked})}/>归档研究（保留历史）</label><button className="wb-button" disabled={!form.name.trim()} onClick={()=>void save()}>保存研究范围</button></fieldset>{notice&&<p role="status">{notice}</p>}</section>
+ {kind==='topic'&&<><label>资料纳入方式<select aria-label="资料纳入方式" value={form.selection_mode} onChange={e=>setForm({...form,selection_mode:e.target.value as Scope['selection_mode']})}><option value="rules">按关键词与规则持续纳入</option><option value="selected">直接选择具体资料</option>{form.task_id&&<option value="task">本次采集批次全部资料</option>}</select></label>{form.selection_mode!=='rules'&&<><SourcePicker value={form.include_ids} onChange={include_ids=>setForm({...form,include_ids})} disabled={!writable||form.selection_mode==='task'} initialTask={form.task_id} keywords={discovery?.keywords}/>{form.selection_mode==='task'&&<p className="wb-hint">按此批次的精确成员纳入；新增批次成员会出现在下一次预览。切换“直接选择具体资料”可只选其中一部分。</p>}</>}<details open={form.selection_mode==='rules'}><summary>关键词与手工规则</summary><label>采集来源关键词（每行一个，任一命中）<RuleWords label="采集来源关键词" value={form.keywords} onChange={keywords=>setForm({...form,keywords})}/></label><p className="wb-hint">已有关键词：{discovery?.keywords.join('、')||'未保存来源关键词'}。历史只保留最后一个关键词的资料无法恢复更早关联；新保存的多关键词关联会持续保留。</p><label>人工纳入内容 ID（每行一个）<RuleWords label="人工纳入内容 ID" value={form.include_ids} onChange={include_ids=>setForm({...form,include_ids})}/></label></details></>}
+ <details><summary>筛选与排除（可选）</summary><div className="remix-form-grid"><label>正文或标题包含词（任一命中）<RuleWords label="正文或标题包含词" value={form.contains} onChange={contains=>setForm({...form,contains})}/></label><label>排除词（任一命中）<RuleWords label="排除词" value={form.excludes} onChange={excludes=>setForm({...form,excludes})}/></label><label>发布时间起<input type="date" value={form.start} onChange={e=>setForm({...form,start:e.target.value})}/></label><label>发布时间止<input type="date" value={form.end} onChange={e=>setForm({...form,end:e.target.value})}/></label></div><label>人工排除内容 ID（每行一个）<RuleWords label="人工排除内容 ID" value={form.exclude_ids} onChange={exclude_ids=>setForm({...form,exclude_ids})}/></label><p className="wb-hint">专题来源关键词与包含词共同筛选；人工纳入可跳过这两项，仍遵守时间与排除规则。</p></details><label className="remix-check"><input type="checkbox" checked={form.archived} onChange={e=>setForm({...form,archived:e.target.checked})}/>归档研究（保留历史）</label><button className="wb-button" disabled={!form.name.trim()||form.selection_mode==='selected'&&!form.include_ids.length} onClick={()=>void save()}>保存研究范围</button></fieldset>{notice&&<p role="status">{notice}</p>}</section>
 }
 
 function AssetCard({asset,spaceId,writable,onSaved,onEvidence}:{asset:Asset;spaceId:string;writable:boolean;onSaved:()=>void;onEvidence:(id:string)=>void}){

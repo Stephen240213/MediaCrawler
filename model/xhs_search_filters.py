@@ -20,6 +20,7 @@ class XhsSearchFilters(BaseModel):
     location: Literal['all', 'same_city', 'nearby'] = 'all'
     max_scrolls: int = Field(default=20, ge=1, le=100)
     timeout_seconds: int = Field(default=300, ge=30, le=1800)
+    refresh_existing: bool = False
 
     def labels(self):
         return {group: choices[getattr(self, key)] for key, (group, choices) in FILTER_GROUPS.items()}
@@ -33,6 +34,10 @@ class XhsSearchProgress(BaseModel):
     verified_filters: dict[str, str] = Field(default_factory=dict)
     discovered: int = Field(default=0, ge=0)
     collected: int = Field(default=0, ge=0)
+    reused: int = Field(default=0, ge=0)
+    new: int = Field(default=0, ge=0)
+    refreshed: int = Field(default=0, ge=0)
+    skipped_batches: int = Field(default=0, ge=0)
     failed: int = Field(default=0, ge=0)
     scrolls: int = Field(default=0, ge=0)
     stop_reason: str = Field(default='', max_length=500)

@@ -146,60 +146,40 @@ class XiaoHongShuCrawler(AbstractCrawler):
     async def search_with_api(self) -> None:
         """Search for notes and retrieve their comment information."""
         utils.logger.info("[XiaoHongShuCrawler.search] Begin search Xiaohongshu keywords")
-        xhs_limit_count = 20  # Xiaohongshu limit page fixed value
-        if config.CRAWLER_MAX_NOTES_COUNT < xhs_limit_count:
-            config.CRAWLER_MAX_NOTES_COUNT = xhs_limit_count
-        start_page = config.START_PAGE
-        for keyword in config.KEYWORDS.split(","):
+        from api.services import collection_batches
+        for keyword in dict.fromkeys(k.strip() for k in config.KEYWORDS.replace('，',',').split(',') if k.strip()):
             source_keyword_var.set(keyword)
-            utils.logger.info(f"[XiaoHongShuCrawler.search] Current search keyword: {keyword}")
-            page = 1
-            search_id = get_search_id()
-            while (page - start_page + 1) * xhs_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
-                if page < start_page:
-                    utils.logger.info(f"[XiaoHongShuCrawler.search] Skip page {page}")
-                    page += 1
-                    continue
-
+            page=config.START_PAGE;processed=0;attempted=0;seen=set();search_id=get_search_id()
+            while attempted<config.CRAWLER_MAX_NOTES_COUNT:
                 try:
-                    utils.logger.info(f"[XiaoHongShuCrawler.search] search Xiaohongshu keyword: {keyword}, page: {page}")
-                    note_ids: List[str] = []
-                    xsec_tokens: List[str] = []
-                    notes_res = await self.xhs_client.get_note_by_keyword(
-                        keyword=keyword,
-                        search_id=search_id,
-                        page=page,
-                        sort=(SearchSortType(config.SORT_TYPE) if config.SORT_TYPE != "" else SearchSortType.GENERAL),
-                    )
-                    utils.logger.info(f"[XiaoHongShuCrawler.search] Search notes response: {notes_res}")
-                    if not notes_res or not notes_res.get("has_more", False):
-                        utils.logger.info("[XiaoHongShuCrawler.search] No more content!")
-                        break
-                    semaphore = asyncio.Semaphore(config.MAX_CONCURRENCY_NUM)
-                    task_list = [
-                        self.get_note_detail_async_task(
-                            note_id=post_item.get("id"),
-                            xsec_source=post_item.get("xsec_source"),
-                            xsec_token=post_item.get("xsec_token"),
-                            semaphore=semaphore,
-                        ) for post_item in notes_res.get("items", {}) if post_item.get("model_type") not in ("rec_query", "hot_query")
-                    ]
-                    note_details = await asyncio.gather(*task_list)
-                    for note_detail in note_details:
-                        if note_detail:
-                            await xhs_store.update_xhs_note(note_detail)
-                            await self.download_media(note_detail)
-                            note_ids.append(note_detail.get("note_id"))
-                            xsec_tokens.append(note_detail.get("xsec_token"))
-                    page += 1
-                    utils.logger.info(f"[XiaoHongShuCrawler.search] Note details: {note_details}")
-                    await self.batch_get_note_comments(note_ids, xsec_tokens)
-
-                    # Sleep after each page navigation
-                    await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
-                    utils.logger.info(f"[XiaoHongShuCrawler.search] Sleeping for {config.CRAWLER_MAX_SLEEP_SEC} seconds after page {page-1}")
+                    notes_res=await self.xhs_client.get_note_by_keyword(
+                        keyword=keyword,search_id=search_id,page=page,
+                        sort=(SearchSortType(config.SORT_TYPE) if config.SORT_TYPE else SearchSortType.GENERAL))
+                    if not notes_res:break
+                    fresh=0
+                    for item in notes_res.get('items',[]):
+                        note_id=item.get('id')
+                        if item.get('model_type') in ('rec_query','hot_query') or not note_id or note_id in seen:continue
+                        if attempted>=config.CRAWLER_MAX_NOTES_COUNT:break
+                        seen.add(note_id);fresh+=1;attempted+=1
+                        existing=collection_batches.existing_note(note_id) if config.SAVE_DATA_OPTION=='sqlite' else None
+                        if existing:
+                            collection_batches.observe_keyword(note_id,keyword)
+                            collection_batches.emit(note_id,existing.get('title'),keyword,'reused')
+                            if config.ENABLE_GET_MEDIA:await self.download_media(collection_batches.media_note(existing))
+                            processed+=1;continue
+                        detail=await self.get_note_detail_async_task(note_id=note_id,xsec_source=item.get('xsec_source'),xsec_token=item.get('xsec_token'),semaphore=asyncio.Semaphore(1))
+                        if not detail:continue
+                        await xhs_store.update_xhs_note(detail)
+                        await self.download_media(detail)
+                        await self.batch_get_note_comments([note_id],[item.get('xsec_token')])
+                        processed+=1
+                    utils.logger.info('[XiaoHongShuCrawler.search] page=%s processed=%s limit=%s',page,processed,config.CRAWLER_MAX_NOTES_COUNT)
+                    if not notes_res.get('has_more',False) or not fresh:break
+                    page+=1
+                    if attempted<config.CRAWLER_MAX_NOTES_COUNT:await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
                 except DataFetchError:
-                    utils.logger.error("[XiaoHongShuCrawler.search] Get note detail error")
+                    utils.logger.error('[XiaoHongShuCrawler.search] Get note detail error')
                     break
 
     async def search_with_browser_filters(self) -> None:
@@ -212,6 +192,7 @@ class XiaoHongShuCrawler(AbstractCrawler):
         from uuid import uuid4
         from model.xhs_search_filters import XhsSearchFilters, XhsSearchProgress
         from .browser_search import BrowserFilteredSearch, SearchFilterError
+        from api.services import collection_batches
 
         if config.XHS_INTERNATIONAL:
             raise SearchFilterError('网页高级筛选暂只适配小红书国内版')
@@ -227,9 +208,10 @@ class XiaoHongShuCrawler(AbstractCrawler):
         for index, keyword in enumerate(keywords, 1):
             source_keyword_var.set(keyword)
             state = {'phase': 'opening', 'keyword': keyword, 'requested_filters': filters.labels(),
-                     'verified_filters': {}, 'discovered': 0, 'collected': 0, 'failed': 0, 'scrolls': 0, 'stop_reason': ''}
+                     'verified_filters': {}, 'discovered': 0, 'collected': 0, 'failed': 0, 'scrolls': 0, 'stop_reason': '',
+                     'new':0,'reused':0,'refreshed':0,'skipped_batches':0}
             started_at = datetime.now(timezone.utc).isoformat()
-            seen = set()
+            seen = set();members=[]
 
             def report(phase, **updates):
                 state.update(updates, phase=phase)
@@ -242,6 +224,10 @@ class XiaoHongShuCrawler(AbstractCrawler):
                     report('opening')
                     await self.context_page.goto(self.index_url, wait_until='domcontentloaded', timeout=30000)
                     batch = await browser.apply(keyword)
+                    for _ in range(config.START_PAGE-1):
+                        if batch is None:break
+                        state['skipped_batches']+=1
+                        batch=await browser.next_batch()
                     while batch is not None:
                         candidates = []
                         for item in batch.items:
@@ -255,6 +241,18 @@ class XiaoHongShuCrawler(AbstractCrawler):
                         for item in candidates:
                             if state['collected'] >= config.CRAWLER_MAX_NOTES_COUNT:
                                 break
+                            existing=collection_batches.existing_note(item['id']) if config.SAVE_DATA_OPTION=='sqlite' else None
+                            if existing and not filters.refresh_existing:
+                                collection_batches.observe_keyword(item['id'],keyword)
+                                collection_batches.emit(item['id'],existing.get('title'),keyword,'reused')
+                                members.append(dict(content_id=item['id'],action='reused'))
+                                state['collected']+=1;state['reused']+=1
+                                # Completed media are skipped by the downloader; missing
+                                # files can be filled using already-saved media addresses.
+                                if config.ENABLE_GET_MEDIA:
+                                    await self.download_media(collection_batches.media_note(existing))
+                                report('saving')
+                                continue
                             report('details')
                             detail = await self.get_note_detail_async_task(
                                 note_id=item['id'], xsec_source=item.get('xsec_source') or 'pc_search',
@@ -265,6 +263,8 @@ class XiaoHongShuCrawler(AbstractCrawler):
                             report('saving')
                             await xhs_store.update_xhs_note(detail)
                             state['collected'] += 1
+                            action='refreshed' if existing else 'new'
+                            state[action]+=1;members.append(dict(content_id=item['id'],action=action))
                             report('saving')
                             await self.download_media(detail)
                             await self.batch_get_note_comments([item['id']], [item['xsec_token']])
@@ -287,6 +287,7 @@ class XiaoHongShuCrawler(AbstractCrawler):
             finally:
                 metadata = {**state, 'task_id': run_id, 'requested_options': filters.model_dump(),
                             'max_notes_count': config.CRAWLER_MAX_NOTES_COUNT,
+                            'start_page':config.START_PAGE,'members':members,'membership_version':1,
                             'started_at': started_at, 'finished_at': datetime.now(timezone.utc).isoformat()}
                 path = folder / f'{run_id}_{index}.json'
                 temporary = path.with_suffix('.tmp')

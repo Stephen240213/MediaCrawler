@@ -16,6 +16,8 @@ class ResearchSpace(StrictModel):
     excludes: list[str] = Field(default_factory=list, max_length=20)
     include_ids: list[str] = Field(default_factory=list, max_length=200)
     exclude_ids: list[str] = Field(default_factory=list, max_length=200)
+    selection_mode: Literal['rules','selected','task'] = 'rules'
+    task_id: str = Field(default='',pattern=r'^([a-f0-9]{32})?$')
     start: str = Field(default='', pattern=r'^(\d{4}-\d{2}-\d{2})?$')
     end: str = Field(default='', pattern=r'^(\d{4}-\d{2}-\d{2})?$')
     archived: bool = False
@@ -34,7 +36,9 @@ class ResearchSpace(StrictModel):
         if self.start and self.end and self.start>self.end: raise ValueError('开始日期不能晚于结束日期')
         if self.kind=='single' and not self.content_id: raise ValueError('请选择单条素材')
         if self.kind=='account' and not self.account_id: raise ValueError('请选择具有可靠ID的发布者')
-        if self.kind=='topic' and not (self.keywords or self.contains or self.include_ids): raise ValueError('专题至少需要一个来源关键词、匹配词或指定素材')
+        if self.selection_mode=='selected' and not self.include_ids: raise ValueError('请直接选择至少一条资料')
+        if self.selection_mode=='task' and not self.task_id: raise ValueError('请选择采集批次')
+        if self.kind=='topic' and self.selection_mode=='rules' and not (self.keywords or self.contains or self.include_ids): raise ValueError('专题至少需要一个来源关键词、匹配词或指定素材')
         return self
 
 

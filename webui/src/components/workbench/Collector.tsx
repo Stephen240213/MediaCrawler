@@ -1,5 +1,7 @@
 import { useSession, canOperate } from '@/lib/session'
 import { useState } from 'react'
+import {useQuery} from '@tanstack/react-query'
+import api from '@/lib/api'
 import { Play, Square, ChevronDown, Search, FileText, Users } from 'lucide-react'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { useStartCrawler, useStopCrawler } from '@/hooks/useCrawler'
@@ -14,6 +16,7 @@ export const collectionTools = [
 ]
 export function Collector() {
   const writable = canOperate(useSession())
+  const defaults=useQuery({queryKey:['xhsFilterOptions'],queryFn:async()=>(await api.get<{limits:{max_notes_count:number;max_comments_count:number}}>('/config/xhs-search-filters')).data})
   const config = useCrawlerStore(s => s.config)
   const update = useCrawlerStore(s => s.updateConfig)
   const status = useCrawlerStore(s => s.status)
@@ -30,7 +33,7 @@ export function Collector() {
     if (!target.trim()) { setValidation('请先填写采集目标'); return }
     if (config.login_type === 'cookie' && !config.cookies.trim()) { setValidation('请填写 Cookie，或切换为扫码登录'); return }
     setValidation('')
-    start.mutate({...config, xhs_filters: config.platform === 'xhs' && config.crawler_type === 'search' ? config.xhs_filters : undefined, start_page: config.platform === 'xhs' && config.crawler_type === 'search' && config.xhs_filters ? 1 : config.start_page, enable_media: config.enable_media && !['tieba', 'zhihu'].includes(config.platform)})
+    start.mutate({...config, xhs_filters: config.platform === 'xhs' && config.crawler_type === 'search' ? config.xhs_filters : undefined, start_page: config.start_page,max_notes_count:config.max_notes_count??defaults.data?.limits.max_notes_count,max_comments_count:config.max_comments_count??defaults.data?.limits.max_comments_count, enable_media: config.enable_media && !['tieba', 'zhihu'].includes(config.platform)})
   }
   return <section className="wb-card wb-tool-form">
     <div className="wb-card-heading"><span className="wb-icon-box"><Icon size={21}/></span><div><h2>{tool.title}</h2><p>{tool.description}</p></div><span className="wb-badge">浏览器执行</span></div>
@@ -51,9 +54,9 @@ export function Collector() {
         {config.platform === 'xhs' && config.crawler_type === 'search' && <SearchFilters disabled={busy}/>}
         {config.platform !== 'xhs' && config.crawler_type === 'search' && <p className="wb-hint">此平台沿用现有搜索方式，网页高级筛选暂仅支持小红书。</p>}
         <div className="wb-separator"/>
-        <h3>采集与保存</h3>
+        <h3>采集与保存</h3><p className="wb-effective-options">本次每个关键词最多处理 <strong>{config.max_notes_count??defaults.data?.limits.max_notes_count??'…'}</strong> 条（含复用）；起始批次 {config.start_page}{config.xhs_filters?` · 最多滚动 ${config.xhs_filters.max_scrolls} 次 · 最长 ${config.xhs_filters.timeout_seconds} 秒`:""}。任一上限先达到即停止。</p>
         <div className="wb-form-grid">
-          <label>内容数量上限<input type="number" min={1} max={10000} value={config.max_notes_count ?? ''} placeholder="使用项目默认值" onChange={e => update({max_notes_count: e.target.value ? Number(e.target.value) : undefined})}/></label>
+          <label>内容数量上限<input type="number" min={1} max={10000} value={config.max_notes_count ?? ''} placeholder={`项目默认：${defaults.data?.limits.max_notes_count??'读取中'}`} onChange={e => update({max_notes_count: e.target.value ? Number(e.target.value) : undefined})}/></label>
           <label>保存格式<select value={config.save_option} onChange={e => update({save_option: e.target.value})}>{[['json', 'JSON'], ['jsonl', 'JSONL'], ['csv', 'CSV'], ['excel', 'Excel'], ['sqlite', 'SQLite'], ['db', 'MySQL（需配置）'], ['mongodb', 'MongoDB（需配置）']].map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
         </div>
         <label className="wb-switch-row"><span><strong>采集评论</strong><small>保存内容下的评论</small></span><input type="checkbox" checked={config.enable_comments} onChange={e => update({enable_comments: e.target.checked, enable_sub_comments: e.target.checked && config.enable_sub_comments})}/></label>
@@ -63,9 +66,9 @@ export function Collector() {
         </div>}
         <label className="wb-switch-row"><span><strong>下载媒体素材</strong><small>{['tieba','zhihu'].includes(config.platform) ? '当前平台不支持媒体下载' : '图片与视频会出现在素材管理中'}</small></span><input type="checkbox" disabled={['tieba','zhihu'].includes(config.platform)} checked={config.enable_media && !['tieba','zhihu'].includes(config.platform)} onChange={e => update({enable_media: e.target.checked})}/></label>
         <details className="wb-advanced"><summary><ChevronDown size={15}/>高级参数</summary><div className="wb-form-grid">
-          <label>起始页<input disabled={config.platform === 'xhs' && config.crawler_type === 'search' && !!config.xhs_filters} type="number" min={1} value={config.start_page} onChange={e => update({start_page: Number(e.target.value) || 1})}/></label>
+          <label>{config.platform==='xhs'&&config.xhs_filters?'起始批次（网页加载）':'起始页'}<input aria-label="起始页" type="number" min={1} value={config.start_page} onChange={e => update({start_page: Number(e.target.value) || 1})}/></label>
           <label className="wb-check"><input type="checkbox" checked={config.headless} onChange={e => update({headless: e.target.checked})}/>无头模式</label>
-        </div><p className="wb-hint">首次扫码登录建议保持浏览器可见。</p></details>
+        </div><p className="wb-hint">网页搜索没有固定分页：起始批次 2 表示跳过首批结果，从下一批开始。首次扫码登录建议保持浏览器可见。</p></details>
       </fieldset>
       {validation && <p role="alert" className="wb-error">{validation}</p>}
       <div className="wb-form-footer"><span>{config.save_option === 'sqlite' ? '结果写入本机采集 SQLite 库，可在数据分析中查看' : ['db', 'mongodb', 'postgres'].includes(config.save_option) ? '结果写入已配置的数据库' : '结果保存在本机 data 目录'}</span>{busy ? <button type="button" className="wb-button danger" disabled={!writable || status === 'stopping' || stop.isPending} onClick={() => stop.mutate()}><Square size={16}/>{status === 'stopping' ? '正在停止…' : '停止任务'}</button> : <button className="wb-button primary" type="submit" disabled={!writable}><Play size={16}/>执行{modeNames[config.crawler_type]}</button>}</div>

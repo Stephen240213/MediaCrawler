@@ -66,6 +66,9 @@ def listing():
 
 def save(payload,actor,space_id=None):
     data=payload.model_dump();data['name']=data['name'].strip()
+    if data['selection_mode']=='task':
+        from api.services import collection_batches
+        collection_batches.selected_ids(data['task_id'])
     if data['kind']=='account':
         with analytics.read_db() as (source_db,_):
             cols={row[1] for row in source_db.execute('PRAGMA table_info(xhs_note)')}
@@ -109,6 +112,8 @@ def _catalog(db,space=None,search=''):
     if search:
         where.append("(instr(coalesce(c.title,''),?)>0 OR instr(coalesce(c.author,''),?)>0 OR c.content_id=?)");args.extend([search]*3)
     if space:
+        if space.get('selection_mode') in ('selected','task'):
+            where.append('c.content_id IN (SELECT value FROM json_each(?))');args.append(encode(space['include_ids']))
         if space['kind']=='single': where.append('c.content_id=?');args.append(space['content_id'])
         if space['kind']=='account':
             if 'note_id' in cols:
@@ -199,6 +204,12 @@ def _matches(space,s):
 
 
 def _snapshot(space):
+    space=dict(space)
+    if space.get('selection_mode')=='task':
+        from api.services import collection_batches
+        space['include_ids']=collection_batches.selected_ids(space['task_id'])
+    if space.get('selection_mode') in ('selected','task'):
+        space.update(keywords=[],contains=[])
     with analytics.read_db() as (db,_):
         db.execute('BEGIN');items=[s for s in _catalog(db,space) if _matches(space,s)]
         if len(items)>MAX_MEMBERS: raise ValueError('单个研究范围最多200条，请用关键词、时间或排除规则缩小范围')
