@@ -18,10 +18,12 @@
 
 黑马榜 `category` 使用官方列出的 25 个中文分类下拉选项（旅游相关为「旅行度假」），并在后端校验。服务返回分类错误时显示具体业务码与说明，不自动替换分类或重试。参数与字段映射参考 [RedFox 黑马榜接口规范](https://github.com/redfox-data/redfox-community/blob/main/skills/xiaohongshu-darkhorse/references/api-spec.md)、[小红书作品搜索](https://redfox.hk/apis/xiaohongshu/384C6W6B)、[抖音作品搜索](https://redfox.hk/apis/douyin/774OBKK0) 以及官方 X / YouTube 评论格式说明。未知结构保留文件并报告，不能以本地模拟测试代替真实服务数据结构确认。
 
+日期字段使用日期选择器并在本机校验格式。黑马榜文档标称最长回溯 30 天，但官方说明部分格式正确的日期也会被报为“日期格式错误”，可能涉及数据断档或服务窗口。工作台采用保守策略：按上海日期允许 1–29 天前，避开第 30 天边界和尚未更新的当天；这不是对服务真实可用窗口的保证。建议日期为 7 天前，可点击按钮仅填写日期，再手动执行。范围内仍被拒绝时，会展示提交日期和服务端问题提示，不自动换日期或重试。例：2026-10-26 的提交范围为 2026-09-27 至 2026-10-25，建议日期 2026-10-19。
+
 仅针对 MCP 的本机验证命令：
 
 ```sh
-uv run --frozen pytest tests/test_redfox.py tests/test_redfox_ingest.py tests/test_analytics.py tests/test_content_remix.py tests/test_remix_research.py -q
+uv run --frozen pytest tests/test_redfox_dates.py tests/test_redfox.py tests/test_redfox_ingest.py tests/test_analytics.py tests/test_content_remix.py tests/test_remix_research.py -q
 npm --prefix webui run build
 uv run --frozen pytest tests/test_redfox_browser.py -q
 ```

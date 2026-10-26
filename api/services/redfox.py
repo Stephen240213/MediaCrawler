@@ -61,6 +61,8 @@ def validate_tool(platform, name, arguments):
     }
     if name in alternatives and not any(arguments.get(k) for k in alternatives[name]):
         raise ValueError('至少填写一个：' + ' / '.join(alternatives[name]))
+    from .redfox_dates import validate_dates
+    validate_dates(name, arguments)
     return tool
 
 
@@ -130,6 +132,9 @@ class RedFoxClient:
             raise ValueError(f'RedFox 返回 HTTP {exc.response.status_code}；请检查凭据或余额，不会自动重试') from None
         except (httpx.HTTPError, TimeoutError):
             raise ValueError('RedFox 通信未完成，远程任务可能已提交；不会自动重试，请先核对任务') from None
+        except ValueError as exc:
+            from .redfox_dates import date_error_hint
+            raise ValueError(date_error_hint(name, arguments, exc)) from None
         finally:
             await self.client.aclose()
 

@@ -1,9 +1,11 @@
 """Only the new MCP form is exercised; all MCP collection requests intercepted."""
 import os
 from pathlib import Path
+from datetime import date,timedelta
 from playwright.sync_api import sync_playwright, expect
 from tests.test_remix_browser import remix_app
 from api.services.redfox import TOOLS
+from api.services.redfox_dates import catalog_tools
 
 
 def test_mcp_platform_tools_parameters_and_single_submission(remix_app):
@@ -13,7 +15,7 @@ def test_mcp_platform_tools_parameters_and_single_submission(remix_app):
         errors=[];submissions=[]
         page.on('pageerror',lambda error:errors.append(str(error)))
         page.add_init_script("localStorage.setItem('mediacrawler_license_accepted','true');localStorage.setItem('mediacrawler_env_checked','true')")
-        page.route('**/api/crawler/redfox/tools',lambda route:route.fulfill(json={'tools':TOOLS,'configured':{'xhs':True,'dy':True,'twitter':True,'youtube':True}}))
+        page.route('**/api/crawler/redfox/tools',lambda route:route.fulfill(json={'tools':catalog_tools(TOOLS),'configured':{'xhs':True,'dy':True,'twitter':True,'youtube':True}}))
         def intercept(route):
             submissions.append(route.request.post_data_json)
             route.fulfill(json={'status':'ok','task_id':'a'*32})
@@ -30,6 +32,20 @@ def test_mcp_platform_tools_parameters_and_single_submission(remix_app):
         assert category.locator('option').count()==26
         category.select_option('旅行度假')
         expect(category).to_have_value('旅行度假')
+        calendar=page.get_by_label('开始日期 *',exact=True)
+        assert calendar.get_attribute('type')=='date'
+        recommended=calendar.input_value()
+        old_date=(date.fromisoformat(calendar.get_attribute('min'))-timedelta(days=1)).isoformat()
+        calendar.fill(old_date)
+        page.get_by_role('button',name='执行 MCP 采集',exact=True).click()
+        assert calendar.evaluate('(input)=>input.validity.rangeUnderflow') and not submissions
+        page.get_by_role('button',name='使用建议日期',exact=False).click()
+        expect(calendar).to_have_value(recommended)
+        assert not submissions # Date suggestion itself never calls RedFox.
+        with page.expect_response('**/api/crawler/start'):
+            page.get_by_role('button',name='执行 MCP 采集',exact=True).click()
+        assert submissions[0]['mcp_arguments']=={'category':'旅行度假','start_date':recommended}
+        submissions.clear()
         page.get_by_label('目标平台',exact=True).select_option('youtube')
         assert tool.locator('option').count()==4
         tool.select_option('youtube_get_comments')

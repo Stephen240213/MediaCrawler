@@ -31,7 +31,8 @@ router = APIRouter(prefix="/crawler", tags=["crawler"])
 async def redfox_tools():
     """Local catalog only; does not call or charge the remote service."""
     from ..services.redfox import TOOLS, PLATFORMS, credential
-    return {'tools': TOOLS, 'configured': {p: bool(credential(p)) for p in PLATFORMS}}
+    from ..services.redfox_dates import catalog_tools
+    return {'tools': catalog_tools(TOOLS), 'configured': {p: bool(credential(p)) for p in PLATFORMS}}
 
 
 class RedFoxImport(BaseModel):
