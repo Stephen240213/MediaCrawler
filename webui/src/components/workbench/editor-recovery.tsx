@@ -58,6 +58,7 @@ export function useEditorRecovery<T>(kind:string,resourceId:string,value:T,apply
  const clear=async()=>{retired.current=true;blocked.current=true;ready.current=false;baseline.current=JSON.stringify(latest.current);localStorage.removeItem(storageKey);await queue.current;try{await api.delete(endpoint,{params:{revision:revision.current}})}catch(e){setMessage(errorMessage(e))}}
  return {candidate,message,restore,discard,clear}
 }
-export function RecoveryNotice({recovery}:{recovery:{candidate:unknown;message:string;restore:()=>void;discard:()=>void}}){
- return <aside className="remix-citation" aria-label="编辑恢复"><p role="status">{recovery.message||'正在读取恢复草稿…'}</p>{recovery.candidate!==null&&<div className="an-actions"><button className="wb-button" onClick={recovery.restore}>恢复未完成编辑</button><button className="wb-button" onClick={recovery.discard}>使用当前内容</button></div>}</aside>
+export function RecoveryNotice({recovery,compact=false}:{compact?:boolean;recovery:{candidate:unknown;message:string;restore:()=>void;discard:()=>void}}){
+ const message=compact&&recovery.candidate===null?(recovery.message==='编辑恢复已就绪'?'编辑恢复保护已开启':recovery.message.startsWith('未完成编辑已保存')?'编辑内容已备份':recovery.message):recovery.message
+ return <aside className={compact?'wb-recovery-compact':'remix-citation'} aria-label="编辑恢复"><p role="status">{message||'正在读取恢复草稿…'}</p>{recovery.candidate!==null&&<div className="an-actions"><button className="wb-button" onClick={recovery.restore}>恢复未完成编辑</button><button className="wb-button" onClick={recovery.discard}>使用当前内容</button></div>}</aside>
 }

@@ -1738,3 +1738,54 @@
 .wb-workspace-tabs button.selected {color:var(--wb-purple,#7c3aed);border-bottom:2px solid currentColor;font-weight:600}
 @media(max-width:1100px) {.creation-panel {grid-template-columns:minmax(0,1fr)}}
 @media(max-width:600px) {.creation-panel .wb-card {padding:18px}.wb-tabs-status {display:none}}
+
+/* The draft canvas takes priority; saved drafts are chosen in a compact toolbar. */
+.wb-draft-workspace .wb-studio {grid-template-columns:minmax(0,1fr);gap:20px}
+.wb-draft-workspace .wb-studio.has-preview {grid-template-columns:minmax(0,1fr) minmax(280px,340px)}
+.wb-draft-toolbar {grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;padding:16px 20px}
+.wb-draft-picker {display:flex;align-items:flex-end;gap:10px;min-width:0;flex:1 1 260px;max-width:500px}
+.wb-draft-picker label {display:grid;gap:6px;min-width:0;flex:1;font-size:12px;color:#82758e}
+.wb-draft-picker select {width:100%;min-width:0;max-width:100%;border:1px solid #e7e1ee;border-radius:9px;background:#fff;padding:10px 12px;color:#4d425c}
+.wb-draft-toolbar-actions {display:flex;flex-wrap:wrap;gap:8px}
+.wb-draft-workspace .wb-draft-editor {min-width:0;overflow:hidden}
+.wb-draft-editor .wb-card-heading {padding:20px 24px;gap:12px;align-items:center}
+.wb-draft-editor .wb-card-heading .wb-badge {margin-left:auto}
+.wb-draft-editor .wb-card-heading h2 {font-size:18px;color:#44394f}
+.wb-draft-editor .wb-card-heading p {font-size:12px;margin-top:3px;color:#93869d}
+.wb-draft-editor .wb-editor-fields {border:0;margin:0;padding:24px;min-width:0;display:grid;gap:22px}
+.wb-draft-editor .wb-editor-fields>label {display:grid;gap:8px;margin:0;font-size:13px;color:#73647f}
+.wb-draft-editor .wb-editor-fields>label>small {font-size:11px;color:#a197a9;line-height:1.5}
+.wb-draft-editor input,.wb-draft-editor select,.wb-draft-editor textarea {width:100%;min-width:0;border:1px solid #e7e1ee;border-radius:10px;padding:12px 14px;background:#fff;color:#44394f;outline:none}
+.wb-draft-editor input:focus,.wb-draft-editor select:focus,.wb-draft-editor textarea:focus {border-color:#b69bdf;box-shadow:0 0 0 3px #8250d80b}
+.wb-draft-editor .wb-editor-fields>label:first-child select {max-width:240px}
+.wb-draft-editor .wb-editor-title-field input {font-size:19px;font-weight:600;line-height:1.5}
+.wb-draft-editor textarea {min-height:360px;resize:vertical;font-size:15px;line-height:1.85}
+.wb-draft-editor .wb-editor-media-header {border-top:1px solid #f0ecf4;padding-top:20px}
+.wb-draft-editor .wb-draft-images:empty {display:none}
+.wb-editor-footer {border-top:1px solid #f0ecf4;padding-top:16px;font-size:11px;color:#a197a9}
+.wb-recovery-compact {padding:10px 24px;background:#faf8fd;border-bottom:1px solid #f0ecf4;font-size:11px;line-height:1.6;color:#9a8ba6}
+.wb-recovery-compact .an-actions {margin-top:8px}
+.wb-draft-workspace .wb-preview-column {grid-column:auto;min-width:0;max-width:none;width:100%;position:sticky;top:18px;margin:0}
+.wb-draft-workspace .wb-preview-column[hidden] {display:none}
+.wb-draft-workspace .wb-note-placeholder {height:220px}
+@media(max-width:1150px) {
+ .wb-draft-workspace .wb-studio.has-preview {grid-template-columns:minmax(0,1fr)}
+ .wb-draft-workspace .wb-preview-column {position:static;max-width:420px;margin:0 auto}
+}
+@media(max-width:600px) {
+ .wb-draft-toolbar {padding:14px;gap:12px}
+ .wb-draft-picker {flex-basis:100%;max-width:none}
+ .wb-draft-toolbar-actions {width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+ .wb-draft-toolbar-actions .wb-button {padding:9px 6px;justify-content:center;font-size:11px}
+ .wb-draft-editor .wb-card-heading {padding:18px;gap:10px}
+ .wb-draft-editor .wb-editor-fields {padding:18px;gap:20px}
+ .wb-recovery-compact {padding:9px 18px}
+ .wb-draft-editor textarea {min-height:300px}
+}
+
+.wb-preview-return {display:none}
+@media(max-width:1150px) {.wb-preview-return {display:inline-flex;margin-left:auto}.wb-draft-workspace .wb-preview-label {flex-wrap:wrap}}
+
+.wb-editor-platform {margin-left:auto;display:grid;gap:4px;font-size:10px;color:#9a8ba6;width:140px;flex-shrink:0}
+.wb-draft-editor .wb-editor-platform select {padding:7px 10px;font-size:12px}
+@media(max-width:600px) {.wb-editor-platform {width:100px}}

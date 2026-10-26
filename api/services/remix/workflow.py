@@ -152,17 +152,24 @@ async def evidence_node(state):
 
 async def analysis_node(state):
     stage(state['job_id'],'analyze')
+    job=store.get(state['job_id'])
+    evidence=state['evidence']
+    if job['source'].get('kind') in ('report','research'):
+        # Retry can resume directly here with the previous version's checkpoint evidence.
+        # Rebuild from the same frozen source before any model/cache use.
+        evidence=build_evidence(job['source'],state.get('transcript',[]))
+        store.update(job['id'],evidence=evidence)
     config=providers.config()
-    key=hashlib.sha256(json.dumps(dict(evidence=state['evidence'],model=config['model'],endpoint=config['base_url'],
+    key=hashlib.sha256(json.dumps(dict(evidence=evidence,model=config['model'],endpoint=config['base_url'],
                                      prompt=providers.PROMPT_VERSION),sort_keys=True).encode()).hexdigest()
     cached=store.cached_report(key)
     if cached:
-        providers.validate_report(cached['report'],state['evidence'])
-        return dict(report=cached['report'],usage={'total_tokens':0},model=cached['model'],cache_hit=True)
-    report,usage,model=await providers.analyze(state['evidence'])
-    providers.validate_report(report,state['evidence'])
+        providers.validate_report(cached['report'],evidence)
+        return dict(evidence=evidence,report=cached['report'],usage={'total_tokens':0},model=cached['model'],cache_hit=True)
+    report,usage,model=await providers.analyze(evidence)
+    providers.validate_report(report,evidence)
     store.cache_report(key,report,model)
-    return dict(report=report,usage=usage,model=model,cache_hit=False)
+    return dict(evidence=evidence,report=report,usage=usage,model=model,cache_hit=False)
 
 
 async def validate_node(state):

@@ -49,14 +49,16 @@ def snapshot(source, payload, comments=(), saved_total=0):
 
 
 def build_evidence(source, transcript):
+    from .reference_evidence import prepare
+    source, upstream = prepare(source)
     evidence = []
     limit = 30000
-    def append(kind, text, **extra):
+    def append(kind, text, identifier=None, **extra):
         nonlocal limit
         text = str(text)
         if not text or len(text) > limit:
             return False
-        evidence.append(dict(id=f'E{len(evidence)+1:04d}',kind=kind,text=text,**extra))
+        evidence.append(dict(id=identifier or f'E{len(evidence)+1:04d}',kind=kind,text=text,**extra))
         limit -= len(text)
         return True
     append('title', source['title'][:1000])
@@ -73,6 +75,8 @@ def build_evidence(source, transcript):
     if source.get('provenance'):
         append('source_provenance', json.dumps(source['provenance'],ensure_ascii=False))
     if source.get('profile'):append('account_profile',json.dumps(source['profile'],ensure_ascii=False))
+    for entry in upstream:
+        append(entry['kind'],entry['text'],identifier=entry['id'],**{k:v for k,v in entry.items() if k not in ('id','kind','text')})
     used = []
     # Preferences guide expression; they are never source facts.
     for entry in source.get('knowledge',[]):
@@ -91,7 +95,7 @@ def build_evidence(source, transcript):
     body_budget = min(len(body),source_budget//2 if transcript else source_budget)
     body_excerpt = body[:body_budget]
     for start in range(0,len(body_excerpt),600):
-        append('body',body_excerpt[start:start+600])
+        append('report_context' if upstream else 'body',body_excerpt[start:start+600])
     comment_used = 0
     for sample in samples:
         if len(sample['text']) > comment_reserve:
@@ -113,7 +117,7 @@ def build_evidence(source, transcript):
         transcript_chars=speech_used,transcript_original_chars=speech_chars,
         comments={**source.get('comment_context',{}),'included':comment_used},used_knowledge=used,used_research=used_research,
         profile=({k:source['profile'][k] for k in ('id','version','name')} if source.get('profile') else None),
-        visual_analysis=False)
+        visual_analysis=False, upstream_evidence=source.get('upstream_coverage'))
     if not append('coverage',json.dumps(coverage,ensure_ascii=False)):
         raise ValueError('分析范围说明超过输入预算，请精简创作需求或写作经验')
     return evidence

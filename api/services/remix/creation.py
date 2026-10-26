@@ -22,6 +22,7 @@ def catalog():
 def source_for(payload):
     provenance = dict(kind=payload.source)
     title = payload.title.strip()
+    reference_bundle = None
     if payload.source == 'manual':
         body = payload.material.strip()
         title = title or '手填材料创作'
@@ -30,14 +31,16 @@ def source_for(payload):
         job = store.get(payload.reference_id)
         if not job or job['status'] != 'completed' or not job.get('report'):
             raise ValueError('请选择已完成的分析报告')
-        body = json.dumps(dict(report=job['report'], evidence=job.get('evidence', [])), ensure_ascii=False)
+        reference_bundle = dict(report=job['report'], evidence=job.get('evidence', []), source_kind=job.get('source',{}).get('kind','unknown'))
+        body = json.dumps(reference_bundle, ensure_ascii=False)
         title = title or job['title']+' · 创作'
         provenance.update(job_id=job['id'], updated_at=job['updated_at'], note='模型分析包含推断，引用原文保留在报告中')
     elif payload.source == 'research':
         rev = research.revision(payload.reference_id)
         if not rev or rev['status'] not in ('completed', 'partial'):
             raise ValueError('请选择已生成的研究版本')
-        body = json.dumps(dict(materials=rev.get('materials', []), assets=rev.get('assets', []), evidence=rev.get('evidence', [])), ensure_ascii=False)
+        reference_bundle = dict(materials=rev.get('materials', []), assets=rev.get('assets', []), evidence=rev.get('evidence', []))
+        body = json.dumps(reference_bundle, ensure_ascii=False)
         title = title or rev['space']['name']+' · 创作'
         provenance.update(revision_id=rev['id'], note='研究候选解释与原文摘录，不是已核实事实')
     elif payload.source == 'analytics':
@@ -63,4 +66,6 @@ def source_for(payload):
         raise ValueError('视频脚本 Agent 需要选择视频内容类型')
     source = context.snapshot(dict(kind=payload.source, title=title[:200], body=body[:18000], original_body_chars=len(body), truncated=len(body)>18000,
         url=None, video_available=False, provenance=provenance, execution=dict(agent=agent.copy(), skills=skills)), payload)
+    if reference_bundle is not None:
+        source['reference_bundle'] = reference_bundle
     return source

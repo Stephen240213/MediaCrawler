@@ -13,7 +13,7 @@ import httpx
 from .schemas import AnalysisReport
 from . import moss
 
-PROMPT_VERSION = 'remix-v5-creation-skills'
+PROMPT_VERSION = 'remix-v6-scoped-citations'
 MAX_SECONDS = 15*60
 MAX_SOURCE_CHARS = 30000
 MAX_SEGMENTS = 600
@@ -183,8 +183,9 @@ def validate_report(raw, evidence, require_creation=False):
         raise AnalysisError('模型报告格式不符合要求，可重试生成') from None
     valid={e['id'] for e in evidence}
     refs=[report.summary_evidence_ids]+[f.evidence_ids for s in report.sections for f in s.findings]+[i.evidence_ids for i in report.ideas]+[f.evidence_ids for f in report.comment_analysis]+[r.evidence_ids for r in report.rewrites]
-    if any(not set(ids)<=valid for ids in refs):
-        raise AnalysisError('模型报告包含不存在的引用，已拒绝保存')
+    unknown=set().union(*(set(ids)-valid for ids in refs))
+    if unknown:
+        raise AnalysisError(f'模型报告包含不存在的引用，已拒绝保存（未知编号 {len(unknown)} 个，本次有效引用 {len(valid)} 个）。请使用本次提供的引用编号。')
     if len({s.dimension for s in report.sections})!=len(report.sections):
         raise AnalysisError('模型返回重复的分析维度')
     comment_ids={e['id'] for e in evidence if e['kind']=='comment'}
@@ -201,7 +202,7 @@ def validate_report(raw, evidence, require_creation=False):
             raise AnalysisError('模型未遵循所选改写框架，可重试生成')
         if chosen!='auto' and report.recommended_framework!=chosen:
             raise AnalysisError('模型框架建议与所选框架不一致')
-        source_ids={e['id'] for e in evidence if e['kind'] in ('title','body','transcript','supplement')}
+        source_ids={e['id'] for e in evidence if e['kind'] in ('title','body','transcript','supplement') or e['kind']=='source_excerpt' and e.get('factual_source')}
         if any(not set(r.evidence_ids)&source_ids for r in report.rewrites):
             raise AnalysisError('改写稿需引用原文、语音或用户补充材料')
         execution=next((json.loads(e['text']) for e in evidence if e['kind']=='creation_execution'),{})
@@ -239,6 +240,21 @@ def completion_report(data, evidence):
     return validate_report(raw,evidence,require_creation=True)
 
 
+def citation_schema(evidence):
+    schema=AnalysisReport.model_json_schema()
+    ids=[e['id'] for e in evidence]
+    def constrain(node):
+        if isinstance(node,dict):
+            for key,spec in node.get('properties',{}).items():
+                if key in ('evidence_ids','summary_evidence_ids'):
+                    spec['items']['enum']=ids
+            for value in node.values():constrain(value)
+        elif isinstance(node,list):
+            for value in node:constrain(value)
+    constrain(schema)
+    return schema
+
+
 async def analyze(evidence):
     c=config();validate_base(c['base_url'])
     if not c['api_key']:
@@ -256,9 +272,11 @@ limitations 最多三条，只列影响判断的具体缺口及补充办法，�
     execution=next((json.loads(e['text']) for e in evidence if e['kind']=='creation_execution'),None)
     if execution:
         system+='\n本次为创作任务。source_provenance 说明材料来自用户填写、既有模型报告、研究版本或本机数据聚合。保留来源范围，不能将模型推断当作事实。分析维度用于检查材料与表达，重心是生成可编辑成稿。以下为工作台内置 Agent 和 Skill 的执行方法，仅约束写法，不能作为事实引用：\n'+json.dumps(execution,ensure_ascii=False)
+    system+='\n引用协议：输出的 evidence_ids 和 summary_evidence_ids 只能选取用户 JSON 顶层 citation_ids 中的编号，必须逐字匹配。输入资料内部的资源 id、历史引用和未纳入引用都不能直接作为输出引用。R 开头的编号是本次导入的上游原文摘录，origin_kind 标明原类型；评论仅是评论者的说法，旧 brief、coverage 等上下文不是事实。报告内的引用已映射为这些 R 编号。改写稿至少引用一条原文证据（title/body/transcript/supplement，或 factual_source=true 的 source_excerpt），不能只引用报告的改写建议。'
+    model_evidence=[{k:v for k,v in e.items() if k!='upstream_id'} for e in evidence]
     payload={'model':c['model'],'temperature':0.2,'max_tokens':10000,'response_format':{'type':'json_object'},
-             'messages':[{'role':'system','content':system+'\n'+json.dumps(AnalysisReport.model_json_schema(),ensure_ascii=False)},
-                         {'role':'user','content':json.dumps({'evidence':evidence},ensure_ascii=False)}]}
+             'messages':[{'role':'system','content':system+'\n'+json.dumps(citation_schema(evidence),ensure_ascii=False)},
+                         {'role':'user','content':json.dumps({'citation_ids':[e['id'] for e in evidence],'evidence':model_evidence},ensure_ascii=False)}]}
     # DeepSeek defaults to thinking mode. For this bounded JSON task, reserve
     # the completion budget for the report rather than an intermediate trace.
     # Do not send vendor-specific options to other compatible services.
