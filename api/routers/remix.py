@@ -8,10 +8,67 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse, RedirectResponse
 
 from api.services import analytics, workbench_store
-from api.services.remix import providers, store, workflow, knowledge, source_links, profiles, publications, production
-from api.services.remix.schemas import JobInput, UploadInput, KnowledgeInput, VersionInput, ProfileInput, PublicationInput, ObservationInput, ProductionInput
+from api.services.remix import providers, store, workflow, knowledge, source_links, profiles, publications, production, projects
+from api.services.remix.schemas import JobInput, UploadInput, KnowledgeInput, VersionInput, ProfileInput, PublicationInput, ObservationInput, ProductionInput, ProjectInput, ProjectLink, EditorSnapshot
 
 router=APIRouter(prefix='/remix',tags=['ContentRemixAgent'])
+
+
+@router.get('/projects')
+def list_projects(archived: bool=False):
+    return projects.listing(archived)
+
+
+@router.post('/projects')
+def create_project(payload: ProjectInput,request: Request):
+    try:return projects.save(payload,actor(request))
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/projects/{project_id}')
+def project_detail(project_id: str):
+    value=projects.detail(identifier(project_id))
+    if not value:raise HTTPException(404,'项目不存在')
+    return value
+
+
+@router.put('/projects/{project_id}')
+def update_project(project_id: str,payload: ProjectInput,request: Request):
+    try:return projects.save(payload,actor(request),identifier(project_id))
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.post('/projects/{project_id}/links')
+def link_project(project_id: str,payload: ProjectLink):
+    try:return projects.link(identifier(project_id),payload)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.post('/projects/{project_id}/unlink')
+def unlink_project(project_id: str,payload: ProjectLink):
+    try:return projects.unlink(identifier(project_id),payload)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/editors/{kind}/{resource_id}')
+def editor_snapshot(kind: str,resource_id: str,request: Request):
+    if kind not in ('project','rewrite','production','draft'):raise HTTPException(404,'编辑器不存在')
+    try:return projects.snapshot(actor(request),kind,resource_id)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.put('/editors/{kind}/{resource_id}')
+def save_editor_snapshot(kind: str,resource_id: str,payload: EditorSnapshot,request: Request):
+    if kind not in ('project','rewrite','production','draft'):raise HTTPException(404,'编辑器不存在')
+    try:return projects.save_snapshot(actor(request),kind,resource_id,payload)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.delete('/editors/{kind}/{resource_id}')
+def clear_editor_snapshot(kind: str,resource_id: str,request: Request,revision: int=Query(ge=0)):
+    if kind not in ('project','rewrite','production','draft'):raise HTTPException(404,'编辑器不存在')
+    try:return projects.clear_snapshot(actor(request),kind,resource_id,revision)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
 
 
 def identifier(value):

@@ -24,6 +24,7 @@ class CreativeBrief(StrictModel):
 
 
 class JobInput(StrictModel):
+    project_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$')
     profile_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$')
     include_global_knowledge: bool = False
     source: Literal['xhs', 'upload']
@@ -132,6 +133,7 @@ class ProfileInput(StrictModel):
 
 
 class PublicationInput(StrictModel):
+    production_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$')
     profile_id: str | None = Field(default=None, pattern=r'^([a-f0-9]{32})?$')
     version_id: str = Field(pattern=r'^[a-f0-9]{32}$')
     url: str = Field(min_length=1, max_length=2000)
@@ -187,3 +189,23 @@ class ProductionInput(StrictModel):
     cues: list[SubtitleCue] = Field(default_factory=list, max_length=1500)
     checks: ProductionChecks = Field(default_factory=ProductionChecks)
     request_key: str = Field(pattern=r'^[a-zA-Z0-9_-]{16,128}$')
+
+
+class ProjectInput(StrictModel):
+    title: str = Field(min_length=1,max_length=200)
+    profile_id: str = Field(default='',pattern=r'^([a-f0-9]{32})?$')
+    topic: str = Field(default='',max_length=100)
+    brief: str = Field(default='',max_length=5000)
+    notes: str = Field(default='',max_length=10000)
+    archived: bool = False
+    version: int = Field(default=0,ge=0)
+
+
+class ProjectLink(StrictModel):
+    kind: Literal['source','job','draft','asset']
+    resource_id: str = Field(min_length=1,max_length=500)
+
+
+class EditorSnapshot(StrictModel):
+    revision: int = Field(ge=0)
+    data: dict

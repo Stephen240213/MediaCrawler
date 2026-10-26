@@ -1,3 +1,4 @@
+import {RecoveryNotice,useEditorRecovery} from './editor-recovery'
 import { useSession, canOperate } from '@/lib/session'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -7,7 +8,7 @@ import { workbenchApi, assetUrl, errorMessage, platformNames, type Draft } from 
 
 const emptyDraft = (): Draft => ({id: crypto.randomUUID(), title: '', content: '', tags: [], images: [], platform: 'xhs', version: 0})
 const signature = (draft: Draft) => JSON.stringify([draft.title, draft.content, draft.tags, draft.images, draft.platform])
-export function DraftStudio({assetRequest}: {assetRequest: {id: string; sequence: number} | null}) {
+export function DraftStudio({assetRequest,openRequest}: {assetRequest: {id: string; sequence: number} | null;openRequest?:{id:string;sequence:number}|null}) {
   const writable = canOperate(useSession())
   const {data: drafts = [], isError: draftsError} = useQuery({queryKey: ['workbenchDrafts'], queryFn: workbenchApi.drafts})
   const {data: assets = []} = useQuery({queryKey: ['workbenchAssets'], queryFn: () => workbenchApi.assets()})
@@ -18,6 +19,9 @@ export function DraftStudio({assetRequest}: {assetRequest: {id: string; sequence
   const [picker, setPicker] = useState(false)
   const [slide, setSlide] = useState(0)
   const handledRequest = useRef<number | null>(null)
+  const handledOpen=useRef<number|null>(null)
+  const recovery=useEditorRecovery('draft','current',draft,setDraft)
+  useEffect(()=>{if(openRequest&&handledOpen.current!==openRequest.sequence){const next=drafts.find(d=>d.id===openRequest.id);if(next){handledOpen.current=openRequest.sequence;openDraft(next)}}},[openRequest,drafts])
   const dirty = signature(draft) !== saved
   useEffect(() => {
     if (assetRequest && handledRequest.current !== assetRequest.sequence) {
@@ -58,7 +62,7 @@ export function DraftStudio({assetRequest}: {assetRequest: {id: string; sequence
   const currentSlide = Math.min(slide, Math.max(0, draft.images.length - 1))
   return <div className="wb-studio">
     <aside className="wb-card wb-draft-list"><div className="wb-card-heading"><h2>本机草稿</h2><button className="wb-icon-button" aria-label="新建草稿" disabled={saving || !writable} onClick={() => openDraft(emptyDraft())}><Plus size={19}/></button></div><p className="wb-hint">手动保存，随时继续编辑</p>{draftsError && <p role="alert" className="wb-error">草稿列表加载失败</p>}{!drafts.length && <p className="wb-list-empty">还没有保存的草稿</p>}{drafts.map(item => <button className={`wb-draft-item ${draft.id === item.id ? 'selected' : ''}`} key={item.id} onClick={() => openDraft(item)} disabled={saving}><FilePenLine size={16}/><span><strong>{item.title || '未命名草稿'}</strong><small>{item.updated_at ? new Date(item.updated_at).toLocaleString('zh-CN') : ''} · v{item.version}</small></span></button>)}</aside>
-    <section className="wb-card wb-draft-editor"><div className="wb-card-heading"><FilePenLine size={20}/><div><h2>编辑草稿</h2><p>{dirty ? '有未保存的修改' : draft.version ? `已保存 · 版本 ${draft.version}` : '新草稿'}</p></div><button className="wb-button primary" disabled={saving || !writable} onClick={save}><Save size={15}/>{saving ? '保存中…' : '保存草稿'}</button></div>
+    <section className="wb-card wb-draft-editor"><RecoveryNotice recovery={recovery}/><div className="wb-card-heading"><FilePenLine size={20}/><div><h2>编辑草稿</h2><p>{dirty ? '有未保存的修改' : draft.version ? `已保存 · 版本 ${draft.version}` : '新草稿'}</p></div><button className="wb-button primary" disabled={saving || !writable} onClick={save}><Save size={15}/>{saving ? '保存中…' : '保存草稿'}</button></div>
       <fieldset disabled={!writable} className="wb-editor-fields" style={{border: 0, padding: 0, minWidth: 0}}><label>参考平台<select value={draft.platform} onChange={e => setDraft({...draft, platform: e.target.value})}>{Object.entries(platformNames).map(([id,name]) => <option value={id} key={id}>{name}</option>)}</select></label><label>标题<input maxLength={200} placeholder="给灵感起个标题" value={draft.title} onChange={e => setDraft({...draft, title: e.target.value})}/><small>{draft.title.length} / 200 字 · 草稿长度不代表平台发布限制</small></label><label>正文<textarea rows={12} maxLength={20000} placeholder="整理采集到的灵感，写下自己的内容…" value={draft.content} onChange={e => setDraft({...draft, content: e.target.value})}/><small>{draft.content.length} / 20000 字</small></label><label>话题标签<input placeholder="用空格或逗号分隔，例如：生活 旅行" value={draft.tags.join(' ')} onChange={e => setDraft({...draft, tags: e.target.value.replace(/#/g,'').split(/[\s,，]+/).slice(0,50)})}/></label>
       <div className="wb-editor-media-header"><strong>配图 · {draft.images.length} / 18</strong><button className="wb-button" onClick={() => setPicker(!picker)}><ImagePlus size={15}/>{picker ? '收起素材' : '选择素材'}</button></div>
       <div className="wb-draft-images">{draft.images.map((id,index) => <div key={id}><img alt={`草稿配图 ${index + 1}`} src={assetUrl(id)}/><span>{index + 1}</span><div className="wb-image-actions"><button disabled={index === 0} onClick={() => move(index,-1)} aria-label={`前移配图 ${index + 1}`}><ArrowLeft size={13}/></button><button onClick={() => setDraft({...draft,images: draft.images.filter(i => i !== id)})} aria-label={`移除配图 ${index + 1}`}><X size={13}/></button><button disabled={index === draft.images.length-1} onClick={() => move(index,1)} aria-label={`后移配图 ${index + 1}`}><ArrowRight size={13}/></button></div></div>)}</div>

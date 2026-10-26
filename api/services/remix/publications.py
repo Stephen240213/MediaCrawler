@@ -62,6 +62,11 @@ def save(job_id,payload,actor,publication_id=None):
     version=next((v for v in store.versions(job_id) if v['id']==payload.version_id),None)
     if not version:raise ValueError('请选择本任务已保存的成稿版本')
     data=payload.model_dump();source=job.get('source') or {};brief=source.get('creative_brief') or job['input'].get('brief',{})
+    if data['production_id']:
+        from . import production
+        artifact=production.get(data['production_id'])
+        if not artifact or artifact['job_id']!=job_id or artifact['version_id']!=data['version_id']:
+            raise ValueError('制作版本必须属于当前任务及所选成稿')
     profile_id=data['profile_id'] if data['profile_id'] is not None else (source.get('profile')or{}).get('id','')
     profile=profiles.get(profile_id) if profile_id else None
     if profile_id and not profile:raise ValueError('实际发布账号画像不存在')
@@ -82,7 +87,7 @@ def save(job_id,payload,actor,publication_id=None):
             old=json.loads(row[0])
             if old['version']!=data['version']:raise ValueError('发布记录已更新，请刷新后重试')
             if db.execute('SELECT count(*) FROM publication_observations WHERE publication_id=?',(publication_id,)).fetchone()[0]:
-                if any(old[k]!=data[k] for k in ('version_id','url','published_at','content_type','topic','profile_id','platform')):
+                if any(old.get(k,'')!=data[k] for k in ('version_id','production_id','url','published_at','content_type','topic','profile_id','platform')):
                     raise ValueError('已有观测后不能更改作品、发布时间和分组，避免改变统计口径；可编辑备注')
             if old['profile_id']==profile_id:data['profile_snapshot']=old.get('profile_snapshot')
             data.update(version=old['version']+1,created_at=old['created_at'])
@@ -91,7 +96,7 @@ def save(job_id,payload,actor,publication_id=None):
             for row in rows:
                 old=json.loads(row[0])
                 if old['url']==data['url']:
-                    if all(old[k]==data[k] for k in ('version_id','published_at','content_type','topic','notes')):return old
+                    if all(old.get(k,'')==data[k] for k in ('version_id','production_id','published_at','content_type','topic','notes','profile_id')):return old
                     raise ValueError('该作品已回填，请编辑现有发布记录')
             if db.execute('SELECT count(*) FROM publications').fetchone()[0]>=1000:raise ValueError('发布记录已达1000条上限')
             publication_id=uuid4().hex;data.update(version=1,created_at=store.now())

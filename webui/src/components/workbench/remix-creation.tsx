@@ -2,6 +2,7 @@ import {useEffect, useRef, useState} from 'react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
 import api from '@/lib/api'
 import {errorMessage} from '@/lib/workbench'
+import {RecoveryNotice,useEditorRecovery} from './editor-recovery'
 import {useCreatorProfiles} from './remix-learning'
 
 export type Brief = {platform:string;content_type:string;audience:string;objective:string;topic:string;framework:string;tone:string;must_keep:string;avoid:string;supplemental:string}
@@ -45,14 +46,12 @@ export function EvidenceCoverage({evidence}:{evidence:Evidence[]}) {
 export function RewriteResults({jobId,rewrites,framework,reason,writable,brief,profileId='',onCite}:{jobId:string;rewrites:Rewrite[];framework:string;reason:string;writable:boolean;brief?:Partial<Brief>;profileId?:string;onCite:(ids:string[])=>React.ReactNode}) {
   const cache=useQueryClient()
   const [index,setIndex]=useState(0);const [titleIndex,setTitleIndex]=useState(0)
-  const [title,setTitle]=useState('');const [content,setContent]=useState('');const [feedback,setFeedback]=useState('')
+  const [title,setTitle]=useState(rewrites[0]?.title_options[0]?.title||'');const [content,setContent]=useState(rewrites[0]?.body||'');const [feedback,setFeedback]=useState('')
   const [notice,setNotice]=useState('');const [busy,setBusy]=useState(false)
   const key=useRef<{fingerprint:string;key:string}|null>(null)
   const versions=useQuery({queryKey:['remix-versions',jobId],queryFn:async()=>(await api.get<Version[]>(`/remix/jobs/${jobId}/versions`)).data})
   const rewrite=rewrites[index]
-  useEffect(()=>{setIndex(0);setTitleIndex(0);setFeedback('');setNotice('')},[jobId])
-  useEffect(()=>{setTitle(rewrite?.title_options[titleIndex]?.title||'')},[jobId,index,titleIndex,rewrite])
-  useEffect(()=>{setContent(rewrite?.body||'')},[jobId,index,rewrite])
+  const recovery=useEditorRecovery('rewrite',jobId,{index,titleIndex,title,content,feedback},v=>{setIndex(v.index);setTitleIndex(v.titleIndex);setTitle(v.title);setContent(v.content);setFeedback(v.feedback)})
   const run=async(action:()=>Promise<void>)=>{setBusy(true);setNotice('');try{await action()}catch(e){setNotice(errorMessage(e))}finally{setBusy(false)}}
   const save=()=>run(async()=>{
     const data={rewrite_index:index,title_option:titleIndex,title,content,feedback};const fingerprint=JSON.stringify(data)
@@ -66,10 +65,10 @@ export function RewriteResults({jobId,rewrites,framework,reason,writable,brief,p
     await cache.invalidateQueries({queryKey:['remix-knowledge']});setNotice('已将你的修改反馈确认为经验；可在写作经验库编辑、停用或删除。')
   })
   if(!rewrite)return null
-  return <section className="remix-section"><h3>完整改写稿</h3><p>推荐框架：<strong>{framework}</strong> · {reason}</p>
-    <div className="an-actions">{rewrites.map((r,i)=><button key={i} className="wb-button" aria-pressed={index===i} onClick={()=>{setIndex(i);setTitleIndex(0);setFeedback('')}}>方案 {i+1} · {r.angle}</button>)}</div>
+  return <section className="remix-section"><h3>完整改写稿</h3><RecoveryNotice recovery={recovery}/><p>推荐框架：<strong>{framework}</strong> · {reason}</p>
+    <div className="an-actions">{rewrites.map((r,i)=><button key={i} className="wb-button" aria-pressed={index===i} onClick={()=>{setIndex(i);setTitleIndex(0);setTitle(r.title_options[0].title);setContent(r.body);setFeedback('')}}>方案 {i+1} · {r.angle}</button>)}</div>
     <p>当前框架：{rewrite.framework}</p>{onCite(rewrite.evidence_ids)}
-    <div className="remix-title-options">{rewrite.title_options.map((t,i)=><button key={i} className="remix-job" aria-pressed={titleIndex===i} onClick={()=>setTitleIndex(i)}><span>{t.title}<small>{t.reason}</small></span></button>)}</div>
+    <div className="remix-title-options">{rewrite.title_options.map((t,i)=><button key={i} className="remix-job" aria-pressed={titleIndex===i} onClick={()=>{setTitleIndex(i);setTitle(t.title)}}><span>{t.title}<small>{t.reason}</small></span></button>)}</div>
     <fieldset disabled={!writable||busy}><label>成稿标题<input maxLength={200} value={title} onChange={e=>setTitle(e.target.value)}/></label>
       <label>改写正文<textarea aria-label="改写正文" rows={12} maxLength={8000} value={content} onChange={e=>setContent(e.target.value)}/></label>
       <label>修改反馈<textarea aria-label="修改反馈" rows={3} maxLength={1500} value={feedback} placeholder="说明你改了什么，以及以后希望如何表达。保存后可单独确认为写作经验。" onChange={e=>setFeedback(e.target.value)}/></label>

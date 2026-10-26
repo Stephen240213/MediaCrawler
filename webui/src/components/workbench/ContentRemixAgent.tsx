@@ -6,6 +6,7 @@ import {errorMessage} from '@/lib/workbench'
 import {BriefForm, defaultBrief, EvidenceCoverage, KnowledgePanel, RewriteResults, type Rewrite} from './remix-creation'
 import {ProfilePanel, CommentTopics, PublicationPanel} from './remix-learning'
 import {ProductionPanel} from './remix-production'
+import {useContentProjects} from './ContentProjects'
 import './remix.css'
 
 type Config = {provider_host?: string; model: string; model_ready: boolean; issues: string[]; asr: string; asr_model: string; asr_ready: boolean; ffmpeg_ready: boolean; cloud_audio: boolean; max_seconds: number; chunk_bytes: number}
@@ -20,7 +21,7 @@ const stages: Record<string,string> = {queued:'等待执行',media:'准备音频
 const active = (job?: Job) => job && ['running','queued'].includes(job.status)
 const time = (seconds: number) => `${Math.floor(seconds/60)}:${Math.floor(seconds%60).toString().padStart(2,'0')}`
 
-export function ContentRemixAgent() {
+export function ContentRemixAgent({openRequest}:{openRequest?:{id:string;projectId:string;sequence:number}|null}) {
   const writable=canOperate(useSession());const cache=useQueryClient()
   const [mode,setMode]=useState<'xhs'|'upload'>('xhs')
   const [search,setSearch]=useState('');const [sourcePage,setSourcePage]=useState(1)
@@ -31,15 +32,16 @@ export function ContentRemixAgent() {
   const [comments,setComments]=useState(true);const [pastedComments,setPastedComments]=useState('')
   const [consent,setConsent]=useState(false);const [busy,setBusy]=useState(false)
   const [uploadPercent,setUploadPercent]=useState<number|null>(null)
-  const [notice,setNotice]=useState('');const [selected,setSelected]=useState('');const [jobsPage,setJobsPage]=useState(1)
+  const [projectId,setProjectId]=useState(openRequest?.projectId||'');const projects=useContentProjects()
+  const [notice,setNotice]=useState('');const [selected,setSelected]=useState(openRequest?.id||'');const [jobsPage,setJobsPage]=useState(1)
   const [citation,setCitation]=useState<Evidence|null>(null)
   const requestKey=useRef<{fingerprint:string;key:string}|null>(null)
   const uploadKey=useRef<string|null>(null)
   const videoElement=useRef<HTMLVideoElement|null>(null)
   const config=useQuery({queryKey:['remix-config'],queryFn:async()=>(await api.get<Config>('/remix/config')).data,retry:false})
   const sources=useQuery({queryKey:['remix-sources',search,sourcePage],queryFn:async()=>(await api.get<{items:Source[];total:number}>('/remix/sources',{params:{search,page:sourcePage}})).data,retry:false})
-  const jobs=useQuery({queryKey:['remix-jobs',jobsPage],queryFn:async()=>(await api.get<{items:Job[];total:number}>('/remix/jobs',{params:{page:jobsPage}})).data,refetchInterval:2000,retry:false})
-  const detail=useQuery({queryKey:['remix-job',selected],queryFn:async()=>(await api.get<Job>('/remix/jobs/'+selected)).data,enabled:!!selected,refetchInterval:2000,retry:false})
+  const jobs=useQuery({queryKey:['remix-jobs',jobsPage],queryFn:async()=>(await api.get<{items:Job[];total:number}>('/remix/jobs',{params:{page:jobsPage}})).data,refetchInterval:query=>query.state.data?.items.some(j=>['running','queued'].includes(j.status))?2000:false,retry:false})
+  const detail=useQuery({queryKey:['remix-job',selected],queryFn:async()=>(await api.get<Job>('/remix/jobs/'+selected)).data,enabled:!!selected,refetchInterval:query=>query.state.data&&['running','queued'].includes(query.state.data.status)?2000:false,retry:false})
   const job=detail.data
   const changeMode=(value:'xhs'|'upload')=>{setMode(value);setVideo(value==='upload');setConsent(false);setNotice('')}
   const upload=async()=>{
@@ -61,7 +63,7 @@ export function ContentRemixAgent() {
     setBusy(true);setNotice('');setUploadPercent(null)
     try{
       const uploadId=mode==='upload'?await upload():''
-      const input={source:mode,content_id:mode==='xhs'?contentId:'',upload_id:uploadId,title:mode==='upload'?file?.name.replace(/\.[^.]+$/,'')||'':'',analyze_video:video,include_comments:comments,pasted_comments:pastedComments,brief,profile_id:profileId,include_global_knowledge:includeGlobal,consent}
+      const input={project_id:projectId,source:mode,content_id:mode==='xhs'?contentId:'',upload_id:uploadId,title:mode==='upload'?file?.name.replace(/\.[^.]+$/,'')||'':'',analyze_video:video,include_comments:comments,pasted_comments:pastedComments,brief,profile_id:profileId,include_global_knowledge:includeGlobal,consent}
       const fingerprint=JSON.stringify(input)
       if(requestKey.current?.fingerprint!==fingerprint) requestKey.current={fingerprint,key:crypto.randomUUID()}
       const response=await api.post<Job>('/remix/jobs',{...input,request_key:requestKey.current.key})
@@ -73,7 +75,7 @@ export function ContentRemixAgent() {
     if(!job?.input||!consent)return
     setBusy(true);setNotice('')
     try{
-      const input={...job.input,brief,profile_id:profileId,include_global_knowledge:includeGlobal,include_comments:comments,pasted_comments:pastedComments,consent}
+      const input={...job.input,project_id:projectId,brief,profile_id:profileId,include_global_knowledge:includeGlobal,include_comments:comments,pasted_comments:pastedComments,consent}
       const fingerprint=JSON.stringify(input)
       if(requestKey.current?.fingerprint!==fingerprint)requestKey.current={fingerprint,key:crypto.randomUUID()}
       const response=await api.post<Job>('/remix/jobs',{...input,request_key:requestKey.current.key})
@@ -102,6 +104,7 @@ export function ContentRemixAgent() {
         <details open={!config.data.model_ready||!config.data.asr_ready}><summary>本机配置说明</summary><p>在 Mac 的私有 remote.env 中设置以下变量，重启 MediaCrawler 后生效。密钥不要填写到网页、聊天或 Git。兼容服务需支持 /chat/completions、JSON 对象输出。</p><pre>MC_REMIX_API_KEY=your_api_key{`\n`}MC_REMIX_BASE_URL=https://api.openai.com/v1{`\n`}MC_REMIX_MODEL=gpt-4.1-mini{`\n`}MC_REMIX_ASR=moss</pre><p>Mac 安装媒体工具：<code>brew install ffmpeg</code>。MOSS 本机转写复用 BaoCut 自带的 worker 和已下载的 MOSS、Qwen3 时间戳对齐模型，不会自动下载模型。默认从 /Applications/BaoCut.app 和 ~/.baocut/models 读取，可通过 MC_REMIX_MOSS_WORKER、MC_REMIX_MOSS_MODELS 指定其他路径；需要可用的 MLX／Metal 后端。若使用 whisper.cpp，设置 MC_REMIX_ASR=local、MC_REMIX_WHISPER_MODEL，并安装 whisper-cli；可通过 MC_REMIX_WHISPER_BIN 指定路径。若改用云端转写，设置 MC_REMIX_ASR=cloud、MC_REMIX_ASR_MODEL=whisper-1，服务需支持带片段时间戳的 /audio/transcriptions。</p>{config.data.issues.map(issue=><p key={issue}>{issue}</p>)}</details>
       </>}
     </section>
+    <section className="wb-card remix-card"><label>当前内容项目<select aria-label="当前内容项目" value={projectId} onChange={e=>{setProjectId(e.target.value);setConsent(false)}}><option value="">暂不关联项目</option>{projects.data?.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>{job&&projectId&&<button className="wb-button" disabled={!writable||busy} onClick={()=>void (async()=>{try{await api.post(`/remix/projects/${projectId}/links`,{kind:'job',resource_id:job.id});setNotice('此分析已关联项目，后续成稿和成品将自动汇集。');await cache.invalidateQueries({queryKey:['content-project',projectId]})}catch(e){setNotice(errorMessage(e))}})()}>将当前分析关联此项目</button>}</section>
     <ProfilePanel writable={writable} selected={profileId} onSelect={p=>{setProfileId(p?.id||'');setIncludeGlobal(false);setConsent(false);setBrief({...brief,platform:p?.platform||'xhs',audience:p?.audience||'',tone:p?.tone||'',topic:p?.topic||'',avoid:p?.avoid||''})}}/>
     <section className="wb-card remix-card"><h2>新建分析</h2><fieldset disabled={!writable||busy}><div className="an-actions"><button type="button" className="wb-button" aria-pressed={mode==='xhs'} onClick={()=>changeMode('xhs')}>已有小红书内容</button><button type="button" className="wb-button" aria-pressed={mode==='upload'} onClick={()=>changeMode('upload')}>上传视频</button></div>
       {mode==='xhs'?<><label>搜索已采集标题或内容 ID<input value={search} onChange={e=>{setSearch(e.target.value);setSourcePage(1)}}/></label>
@@ -136,8 +139,8 @@ export function ContentRemixAgent() {
         {job.report.sections.map(section=><section className="remix-section" key={section.dimension}><h3>{section.dimension}</h3>{section.findings.map((finding,i)=><div className="remix-finding" key={i}><p><strong>观察：</strong>{finding.observation}</p><p><strong>推断 / 待验证：</strong>{finding.interpretation}</p>{citations(finding.evidence_ids)}</div>)}</section>)}
         <CommentTopics jobId={job.id} onCite={citations}/>
         {!!job.report.comment_analysis?.length&&<section className="remix-section"><h3>评论样本分析</h3>{job.report.comment_analysis.map((finding,i)=><div key={i} className="remix-finding"><p><strong>观察：</strong>{finding.observation}</p><p><strong>改写启发：</strong>{finding.interpretation}</p>{citations(finding.evidence_ids)}</div>)}</section>}
-        {!!job.report.rewrites?.length&&<RewriteResults jobId={job.id} rewrites={job.report.rewrites} framework={job.report.recommended_framework||''} reason={job.report.framework_reason||''} writable={writable} brief={job.source?.creative_brief||job.input?.brief} profileId={job.source?.profile?.id||''} onCite={citations}/>}
-        <ProductionPanel key={job.id} jobId={job.id} writable={writable}/>
+        {!!job.report.rewrites?.length&&<RewriteResults key={`rewrite-${job.id}`} jobId={job.id} rewrites={job.report.rewrites} framework={job.report.recommended_framework||''} reason={job.report.framework_reason||''} writable={writable} brief={job.source?.creative_brief||job.input?.brief} profileId={job.source?.profile?.id||''} onCite={citations}/>}
+        <ProductionPanel key={`production-${job.id}`} jobId={job.id} writable={writable}/>
         <PublicationPanel jobId={job.id} writable={writable} profileId={job.source?.profile?.id||''} topic={(job.source?.creative_brief||job.input?.brief)?.topic} contentType={(job.source?.creative_brief||job.input?.brief)?.content_type}/>
         <h3>原创选题与提纲</h3>{job.report.ideas.map((idea,i)=><section className="remix-section" key={i}><h4>{idea.title}</h4><ol>{idea.outline.map((line,n)=><li key={n}>{line}</li>)}</ol>{citations(idea.evidence_ids)}<button className="wb-button" disabled={!writable} onClick={()=>void saveDraft(i)}>保存提纲到草稿</button></section>)}
         <h3>待补充与核实</h3><ul>{job.report.limitations.map((line,i)=><li key={i}>{line}</li>)}</ul><p className="wb-hint">模型：{job.model}{job.cache_hit?' · 复用已校验报告缓存':''} · 提示词：{job.prompt_version} · {job.usage?.total_tokens!==undefined?`${job.usage.total_tokens} token`:'服务未提供 token 用量'} · 更新于 {new Date(job.updated_at).toLocaleString('zh-CN')}</p>

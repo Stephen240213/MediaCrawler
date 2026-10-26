@@ -2,7 +2,7 @@ import api from './api'
 
 export interface Asset {
   id: string; name: string; kind: 'image' | 'video'; size: number; updated_at: number
-  source: string; url: string
+  source: string; url: string; thumbnail_url?:string;sha256?:string
 }
 export interface Draft {
   id: string; title: string; content: string; tags: string[]; images: string[]
@@ -23,6 +23,8 @@ export const outcomeNames: Record<string, string> = {
   running: '执行中', completed: '已完成', failed: '执行失败', cancelled: '已停止', interrupted: '服务中断',
 }
 export const workbenchApi = {
+  assetsPage: async(params:{archived:boolean;page:number;page_size:number;search:string;kind:string})=>(await api.get<{assets:Asset[];total:number;indexed_at:string}>('/workbench/assets',{params})).data,
+  reindex:()=>api.post('/workbench/assets/reindex'),
   assets: async (archived = false) => (await api.get<{assets: Asset[]}>('/workbench/assets', {params: {archived}})).data.assets,
   archive: async (id: string, archived: boolean) => api.patch('/workbench/assets/state/' + id.split('/').map(encodeURIComponent).join('/'), {archived}),
   upload: async (name: string, data: string) => (await api.post<Asset>('/workbench/assets', {name, data})).data,

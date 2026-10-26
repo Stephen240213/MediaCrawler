@@ -43,6 +43,10 @@ def connect():
         db.execute('CREATE TABLE IF NOT EXISTS publication_observations(id TEXT PRIMARY KEY,publication_id TEXT,request_key TEXT,fingerprint TEXT,body TEXT NOT NULL,UNIQUE(publication_id,request_key))')
         db.execute('CREATE TABLE IF NOT EXISTS production_revisions(id TEXT PRIMARY KEY,job_id TEXT,request_key TEXT,fingerprint TEXT,body TEXT NOT NULL,UNIQUE(job_id,request_key))')
         db.execute('CREATE INDEX IF NOT EXISTS production_job ON production_revisions(job_id)')
+        db.execute('CREATE TABLE IF NOT EXISTS content_projects(id TEXT PRIMARY KEY,updated_at TEXT,body TEXT NOT NULL)')
+        db.execute('CREATE TABLE IF NOT EXISTS project_links(project_id TEXT,kind TEXT,resource_id TEXT,created_at TEXT,PRIMARY KEY(project_id,kind,resource_id))')
+        db.execute('CREATE INDEX IF NOT EXISTS project_resource ON project_links(kind,resource_id)')
+        db.execute('CREATE TABLE IF NOT EXISTS editor_snapshots(actor TEXT,kind TEXT,resource_id TEXT,revision INTEGER,body TEXT NOT NULL,updated_at TEXT,PRIMARY KEY(actor,kind,resource_id))')
         with db:
             yield db
     finally:
@@ -92,6 +96,10 @@ def submit(payload, actor, source):
         job = dict(id=uuid4().hex, actor=actor, status='queued', stage='queued', created_at=now(),updated_at=now(),
                    input=data, title=source['title'], source=source, error=None, report=None, attempts=1)
         db.execute('INSERT INTO jobs VALUES(?,?,?,?,?,?,?)',(job['id'],actor,payload.request_key,digest,job['status'],job['stage'],json.dumps(job,ensure_ascii=False)))
+        if data.get('project_id'):
+            project=db.execute('SELECT body FROM content_projects WHERE id=?',(data['project_id'],)).fetchone()
+            if not project or json.loads(project[0])['archived']:raise ValueError('内容项目不存在或已归档')
+            db.execute('INSERT INTO project_links VALUES(?,?,?,?)',(data['project_id'],'job',job['id'],now()))
     return job
 
 

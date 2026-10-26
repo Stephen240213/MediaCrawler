@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react'
 import {useQuery,useQueryClient} from '@tanstack/react-query'
 import api from '@/lib/api'
+import {RecoveryNotice,useEditorRecovery} from './editor-recovery'
 import {errorMessage} from '@/lib/workbench'
 
 type Page={title:string;body:string;eyebrow:string;footer:string}
@@ -29,6 +30,7 @@ export function ProductionPanel({jobId,writable}:{jobId:string;writable:boolean}
  const versions=useQuery({queryKey:['remix-versions',jobId],queryFn:async()=>(await api.get<Version[]>(`/remix/jobs/${jobId}/versions`)).data})
  const revisions=useQuery({queryKey:['remix-productions',jobId],queryFn:async()=>(await api.get<Summary[]>(`/remix/jobs/${jobId}/productions`)).data})
  const detail=useQuery({queryKey:['remix-production',selected],enabled:!!selected,queryFn:async()=>(await api.get<Production>(`/remix/productions/${selected}`)).data})
+ const recovery=useEditorRecovery('production',jobId,{form,versionId,selected},v=>{setForm(v.form);setVersionId(v.versionId);setSelected(v.selected);setSuggestions(null)})
  const saved=detail.data
  const dirty=!!saved&&JSON.stringify(saved.spec)!==JSON.stringify(form)
  useEffect(()=>{setForm(blank());setVersionId('');setSelected('');setSuggestions(null);setNotice('');setCuePage(0);pending.current=null},[jobId])
@@ -36,13 +38,13 @@ export function ProductionPanel({jobId,writable}:{jobId:string;writable:boolean}
  const change=(patch:Partial<Design>)=>setForm(prev=>({...prev,...patch,checks:resetChecks()}))
  const seed=()=>run(async()=>{const response=(await api.get<Design&{suggestions:Suggestions}>(`/remix/jobs/${jobId}/production-seed`,{params:{version_id:versionId}})).data;const {suggestions:next,...design}=response;setForm(design);setSuggestions(next);setSelected('');setCuePage(0);pending.current=null;setNotice('已从保存的成稿生成制作草案，请编辑并核对。此操作没有调用模型。')})
  const save=()=>run(async()=>{const fingerprint=JSON.stringify(form);if(pending.current?.fingerprint!==fingerprint)pending.current={fingerprint,key:crypto.randomUUID()};const result=(await api.post<Production>(`/remix/jobs/${jobId}/productions`,{...form,request_key:pending.current.key},{timeout:120000})).data;cache.setQueryData(['remix-production',result.id],result);setForm(result.spec);setSelected(result.id);await cache.invalidateQueries({queryKey:['remix-productions',jobId]});setNotice('制作版本已保存，可预览和下载。修改内容会另存新版本，原文件保持不变。')})
- const load=()=>run(async()=>{if(!saved)return;setForm(saved.spec);setVersionId(saved.version_id);setSuggestions(null);setCuePage(0);setNotice('已载入历史制作版本，修改后请另存。')})
+ const load=()=>run(async()=>{if(!saved)return;recovery.discard();setForm(saved.spec);setVersionId(saved.version_id);setSuggestions(null);setCuePage(0);setNotice('已载入历史制作版本，修改后请另存。')})
  const loadOriginal=()=>run(async()=>{const result=(await api.get<Pick<Design,'subtitle_basis'|'subtitle_duration'|'cues'>>(`/remix/jobs/${jobId}/original-subtitles`)).data;change(result);setCuePage(0);setNotice('已加载原视频完整转写，请逐段校对。这些时间不能用于改写后的新口播。')})
  const updateCue=(index:number,patch:Partial<Cue>)=>change({cues:form.cues.map((c,i)=>i===index?{...c,...patch}:c)})
  const ready=!!saved&&!dirty&&saved.spec.checks.copy_checked&&saved.spec.checks.facts&&saved.spec.checks.rights&&(!saved.spec.cues.length||saved.spec.checks.subtitles)
  const imageFiles=saved?.artifacts.filter(a=>a.name.endsWith('.png'))||[]
  return <section className="remix-section" aria-label="封面卡片字幕制作"><h3>封面、卡片、字幕与人工发布包</h3><p className="wb-hint">从已保存成稿制作可下载的 PNG 图文和字幕。使用本机模板排版，无需模型调用。先预览、核对并保存，再下载 ZIP 到平台手动发布。</p>
- {config.isError&&<p role="alert">制作环境读取失败。<button className="wb-button" onClick={()=>void config.refetch()}>重试制作环境</button></p>}{config.data&&!config.data.ready&&<p role="alert">{config.data.issue}</p>}
+ <RecoveryNotice recovery={recovery}/>{config.isError&&<p role="alert">制作环境读取失败。<button className="wb-button" onClick={()=>void config.refetch()}>重试制作环境</button></p>}{config.data&&!config.data.ready&&<p role="alert">{config.data.issue}</p>}
  {(versions.isError||revisions.isError)&&<p role="alert">版本列表读取失败。<button className="wb-button" onClick={()=>{void versions.refetch();void revisions.refetch()}}>重试版本</button></p>}
  <fieldset disabled={!writable||busy}><label>制作来源成稿<select aria-label="制作来源成稿" value={versionId} onChange={e=>setVersionId(e.target.value)}><option value="">先保存成稿，再选择版本</option>{versions.data?.map(v=><option key={v.id} value={v.id}>{v.adopted?'已采用 · ':''}{v.title} · {new Date(v.created_at).toLocaleString('zh-CN')}</option>)}</select></label><button className="wb-button" disabled={!versionId} onClick={()=>void seed()}>从成稿生成制作草案（替换当前编辑）</button></fieldset>
  <label>历史制作版本<select aria-label="历史制作版本" disabled={busy} value={selected} onChange={e=>{setSelected(e.target.value);setNotice('')}}><option value="">尚未选择制作版本</option>{revisions.data?.map(r=><option key={r.id} value={r.id}>{r.title} · {new Date(r.created_at).toLocaleString('zh-CN')} · {r.id.slice(0,6)}</option>)}</select></label>

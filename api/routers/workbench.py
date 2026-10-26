@@ -8,17 +8,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
 
 from ..services import workbench_store as store
+from ..services import asset_catalog
 
 router = APIRouter(prefix='/workbench', tags=['workbench'])
 DATA_ROOT = store.ROOT / 'data'
 IMAGE_SUFFIXES = {'.jpg', '.jpeg', '.png', '.webp', '.gif'}
-VIDEO_SUFFIXES = {'.mp4', '.webm', '.mov'}
+VIDEO_SUFFIXES = {'.mp4', '.webm', '.mov', '.m4v'}
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 
@@ -44,24 +45,21 @@ class AssetUpload(BaseModel):
 
 
 @router.get('/assets')
-def list_assets(archived: bool = False):
-    if not DATA_ROOT.exists():
-        return {'assets': []}
-    assets = []
-    metadata = {item['id']: item for item in store.list_documents('asset')}
-    root = DATA_ROOT.resolve()
-    for path in DATA_ROOT.rglob('*'):
-        if path.suffix.lower() not in IMAGE_SUFFIXES | VIDEO_SUFFIXES or not path.is_file():
-            continue
-        resolved = path.resolve()
-        if resolved.is_relative_to(root) and not path.is_symlink():
-            item = asset_info(resolved)
-            meta = metadata.get(item['id'], {})
-            item['name'] = meta.get('name', item['name'])
-            item['archived'] = meta.get('archived', False)
-            if item['archived'] == archived:
-                assets.append(item)
-    return {'assets': sorted(assets, key=lambda a: a['updated_at'], reverse=True)}
+def list_assets(archived: bool = False,page: int|None=Query(None,ge=1),page_size: int=Query(48,ge=1,le=100),search: str=Query('',max_length=200),kind: str=Query('all',pattern='^(all|image|video)$')):
+    return asset_catalog.listing(DATA_ROOT,archived,page,page_size,search,kind)
+
+
+@router.post('/assets/reindex')
+def reindex_assets():
+    try:return asset_catalog.refresh(DATA_ROOT)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/assets/thumb/{relative:path}')
+def asset_thumbnail(relative: str):
+    try:path=asset_catalog.thumbnail(DATA_ROOT,relative)
+    except ValueError as exc:raise HTTPException(404,str(exc)) from exc
+    return FileResponse(path,media_type='image/jpeg',headers={'X-Content-Type-Options':'nosniff'})
 
 
 @router.post('/assets', status_code=201)
@@ -91,6 +89,7 @@ def upload_asset(payload: AssetUpload):
     item = asset_info(path.resolve())
     item['name'] = Path(payload.name).name
     store.save_document('asset', {'id': item['id'], 'name': item['name']})
+    asset_catalog.upsert(path,DATA_ROOT)
     return item
 
 

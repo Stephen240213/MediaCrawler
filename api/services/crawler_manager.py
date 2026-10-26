@@ -61,6 +61,9 @@ class CrawlerManager:
         if self.task and self.task['outcome'] == 'running':
             self.task.update(outcome=outcome, finished_at=datetime.now(timezone.utc).isoformat(), exit_code=exit_code)
             workbench_store.save_document('task', self.task)
+            from . import asset_catalog
+            from api.routers.workbench import DATA_ROOT
+            asset_catalog.invalidate(DATA_ROOT)
 
     @property
     def logs(self) -> List[LogEntry]:
