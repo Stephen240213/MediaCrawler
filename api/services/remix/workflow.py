@@ -27,6 +27,7 @@ class State(TypedDict, total=False):
     usage: dict
     model: str
     cache_hit: bool
+    recovery_metadata: dict
 
 
 def source_for(payload):
@@ -166,8 +167,31 @@ async def analysis_node(state):
     if cached:
         providers.validate_report(cached['report'],evidence)
         return dict(evidence=evidence,report=cached['report'],usage={'total_tokens':0},model=cached['model'],cache_hit=True)
-    report,usage,model=await providers.analyze(evidence)
-    providers.validate_report(report,evidence)
+    rejected=folder_for(job['id'])/'rejected-report.json'
+    evidence_hash=hashlib.sha256(json.dumps(evidence,sort_keys=True).encode()).hexdigest()
+    if rejected.is_file():
+        saved=json.loads(rejected.read_text())
+        if saved.get('evidence_sha256')==evidence_hash:
+            try:
+                recovered=providers.validate_report(saved['candidate'],evidence,require_creation=True)
+            except AnalysisError:
+                pass
+            else:
+                store.update(job['id'],model_diagnostics=None,recovered_response=True)
+                return dict(evidence=evidence,report=recovered,usage=saved.get('usage',{}),model=saved.get('model',config['model']),cache_hit=False,
+                    recovery_metadata=dict(prompt_version=saved.get('prompt_version'),model_generated_at=saved.get('created_at')))
+    try:
+        report,usage,model=await providers.analyze(evidence)
+        providers.validate_report(report,evidence)
+    except AnalysisError as exc:
+        if exc.diagnostics:
+            from .artifacts import manifest
+            store.update(job['id'],model_diagnostics=exc.diagnostics,artifacts=manifest(exc.candidate,evidence))
+        if exc.candidate is not None:
+            write_json(rejected,dict(candidate=exc.candidate,diagnostics=exc.diagnostics,
+                evidence_sha256=evidence_hash,model=getattr(exc,'model',config['model']),usage=getattr(exc,'usage',{}),prompt_version=providers.PROMPT_VERSION,created_at=store.now()))
+            rejected.chmod(0o600)
+        raise
     store.cache_report(key,report,model)
     return dict(evidence=evidence,report=report,usage=usage,model=model,cache_hit=False)
 
@@ -180,7 +204,9 @@ async def validate_node(state):
         limitations.append('没有独立正文，内容分析基于标题、所选语音及补充材料。')
     if state.get('transcript'):
         limitations.append('语音识别可能存在错字，请结合视频核对引用。')
-    if not job['source'].get('comment_samples') and job['input'].get('include_comments',True):
+    from .evidence_policy import capabilities
+    has_comments=any(capabilities(e)&{'comment_text','comment_statistics'} for e in state['evidence'])
+    if not has_comments and job['input'].get('include_comments',True):
         limitations.append('本次没有可用评论样本，可补充评论后新建分析。')
     # Visuals and sample scope are displayed separately from actionable missing facts.
     merged=report['limitations']+limitations
@@ -190,8 +216,10 @@ async def validate_node(state):
         if key not in seen:
             seen.add(key);concise.append(item)
     report['limitations']=concise[:5]
-    store.update(job['id'],status='completed',stage='completed',report=report,error=None,
-                 model=state['model'],usage=state['usage'],cache_hit=state.get('cache_hit',False),prompt_version=providers.PROMPT_VERSION,
+    from .artifacts import manifest
+    recovery=state.get('recovery_metadata',{})
+    store.update(job['id'],status='completed',stage='completed',report=report,error=None,model_diagnostics=None,artifacts=manifest(report,state['evidence'],True),
+                 model=state['model'],usage=state['usage'],cache_hit=state.get('cache_hit',False),prompt_version=recovery.get('prompt_version',providers.PROMPT_VERSION),model_generated_at=recovery.get('model_generated_at'),
                  evidence_sha256=hashlib.sha256(json.dumps(state['evidence'],sort_keys=True).encode()).hexdigest(),finished_at=store.now())
     return {'report':report}
 
@@ -327,6 +355,8 @@ def markdown(job):
     profile=(job.get('source')or{}).get('profile')
     if profile:out += ['账号画像：'+profile['name']+' · v'+str(profile['version'])+'（任务快照）']
     topic_table=job.get('comment_topics')
+    if not topic_table or topic_table.get('rule_version')!=topics.RULE_VERSION:
+        topic_table=topics.build(job.get('evidence',[]))
     if topic_table and topic_table['sample_size']:
         out += ['## 评论议题表',topic_table['scope']]
         for group in topic_table['groups']:
@@ -340,7 +370,8 @@ def markdown(job):
     if report.get('comment_analysis'):
         out+=['## 评论样本分析']
         for finding in report['comment_analysis']:
-            out += [finding['observation'],finding['interpretation'],'引用：'+', '.join(finding['evidence_ids'])]
+            basis={'comment_statistics':'本机评论统计','raw_comments':'原始评论样本','mixed':'评论统计与原始样本'}.get(finding.get('basis'),'原始评论样本')
+            out += ['依据：'+basis,finding['observation'],finding['interpretation'],'引用：'+', '.join(finding['evidence_ids'])]
     if report.get('rewrites'):
         out += ['## 改写框架',report['recommended_framework'],report['framework_reason']]
         for index,item in enumerate(report['rewrites']):
@@ -362,6 +393,8 @@ def markdown(job):
     for evidence in job.get('evidence',[]):
         timestamp=f" [{evidence['start']:.1f}–{evidence['end']:.1f}s]" if evidence['kind']=='transcript' else ''
         out += [f"### {evidence['id']}{timestamp}",evidence['text']]
-    out += ['## 生成信息',f"模型：{job.get('model')}；提示词：{job.get('prompt_version')}；生成时间：{job.get('finished_at')}",
+    out += ['## 生成信息',f"模型：{job.get('model')}；提示词：{job.get('prompt_version')}；生成时间：{job.get('model_generated_at') or job.get('finished_at')}",
             f"输入证据 SHA256：{job.get('evidence_sha256')}",f"转写：{job.get('asr_provider','未使用')} / {job.get('asr_model','未使用')}"]
+    if job.get('recovered_response'):
+        out += [f"本机重新校验恢复：{job.get('finished_at')}；未再次调用模型。"]
     return '\n\n'.join(out)+'\n'

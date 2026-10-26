@@ -109,42 +109,44 @@ def source_choices():
 def overview(options):
     where, args = filters(**options)
     with read_db() as (db, ready):
-        # One read transaction ensures all panels describe the same snapshot.
         db.execute('BEGIN')
-        summary = dict(db.execute(f'''SELECT count(*) content_count,
-            count(DISTINCT CASE WHEN author_id IS NOT NULL THEN platform||':'||author_id END) author_count,
-            max(collected_at) last_collected_at, count(published_at) valid_publish_count,
-            count(collected_at) valid_collect_count, count(likes) valid_likes_count,
-            count(favorites) valid_favorites_count, count(comments) valid_comments_count,
-            count(shares) valid_shares_count FROM analytics_content c WHERE {where}''', args).fetchone())
-        parent = f'''FROM analytics_comment m JOIN analytics_content c
-            ON c.platform=m.platform AND c.content_id=m.content_id WHERE {where}'''
-        summary['comment_count'] = db.execute('SELECT count(*) ' + parent, args).fetchone()[0]
-        summary['valid_comment_time_count'] = db.execute('SELECT count(m.published_at) ' + parent, args).fetchone()[0]
-        summary['data_updated_at'] = db.execute('SELECT max(t) FROM (SELECT max(collected_at) t FROM analytics_content UNION ALL SELECT max(collected_at) FROM analytics_comment)').fetchone()[0]
-        charts = {}
-        for key in ('published_at', 'collected_at'):
-            # Display dates and date-range boundaries both use Asia/Shanghai.
-            charts[key] = rows(db, f'''SELECT date(c.{key},'+8 hours') label,count(*) value FROM analytics_content c
-                WHERE {where} AND c.{key} IS NOT NULL GROUP BY label ORDER BY label''', args)
-        for key in ('platform', 'keyword', 'content_type'):
-            charts[key] = rows(db, f'''SELECT coalesce(nullif(c.{key},''),'未提供') label,count(*) value
-                FROM analytics_content c WHERE {where} GROUP BY label ORDER BY value DESC,label LIMIT 30''', args)
-        charts['comment_trend'] = rows(db, 'SELECT date(m.published_at,\'+8 hours\') label,count(*) value ' + parent + ' AND m.published_at IS NOT NULL GROUP BY label ORDER BY label', args)
-        # SQL groups repeated bodies first; bounded term extraction avoids loading
-        # the whole comment database. UI discloses this sampling boundary.
-        bodies = rows(db, 'SELECT m.body,count(*) n ' + parent + " AND nullif(trim(m.body),'') IS NOT NULL GROUP BY m.body ORDER BY max(coalesce(m.collected_at,m.published_at,'')) DESC,m.body LIMIT 5000", args)
-        from .comment_analysis import analyze
-        analysis = analyze(bodies, summary['comment_count'])
-        charts['words'] = analysis['words']
-        authors = rows(db, f'''SELECT c.platform,c.author_id,max(c.author) author,count(*) content_count,
-            sum(c.likes) likes,count(c.likes) valid_likes_count FROM analytics_content c WHERE {where}
-            AND c.author_id IS NOT NULL GROUP BY c.platform,c.author_id ORDER BY content_count DESC,c.platform,c.author_id LIMIT 20''', args)
-        return dict(ready=ready, summary=summary, charts=charts, authors=authors,
-                    generated_at=datetime.now(timezone.utc).isoformat(),
-                    keywords=rows(db, "SELECT DISTINCT keyword FROM analytics_content WHERE keyword IS NOT NULL AND keyword!='' ORDER BY keyword LIMIT 500"),
-                    word_sample_bodies=len(bodies), comment_analysis=analysis)
+        return overview_in_snapshot(db, ready, where, args)
 
+
+def overview_in_snapshot(db, ready, where, args):
+    summary = dict(db.execute(f'''SELECT count(*) content_count,
+        count(DISTINCT CASE WHEN author_id IS NOT NULL THEN platform||':'||author_id END) author_count,
+        max(collected_at) last_collected_at, count(published_at) valid_publish_count,
+        count(collected_at) valid_collect_count, count(likes) valid_likes_count,
+        count(favorites) valid_favorites_count, count(comments) valid_comments_count,
+        count(shares) valid_shares_count FROM analytics_content c WHERE {where}''', args).fetchone())
+    parent = f'''FROM analytics_comment m JOIN analytics_content c
+        ON c.platform=m.platform AND c.content_id=m.content_id WHERE {where}'''
+    summary['comment_count'] = db.execute('SELECT count(*) ' + parent, args).fetchone()[0]
+    summary['valid_comment_time_count'] = db.execute('SELECT count(m.published_at) ' + parent, args).fetchone()[0]
+    summary['data_updated_at'] = db.execute('SELECT max(t) FROM (SELECT max(collected_at) t FROM analytics_content UNION ALL SELECT max(collected_at) FROM analytics_comment)').fetchone()[0]
+    charts = {}
+    for key in ('published_at', 'collected_at'):
+        # Display dates and date-range boundaries both use Asia/Shanghai.
+        charts[key] = rows(db, f'''SELECT date(c.{key},'+8 hours') label,count(*) value FROM analytics_content c
+            WHERE {where} AND c.{key} IS NOT NULL GROUP BY label ORDER BY label''', args)
+    for key in ('platform', 'keyword', 'content_type'):
+        charts[key] = rows(db, f'''SELECT coalesce(nullif(c.{key},''),'未提供') label,count(*) value
+            FROM analytics_content c WHERE {where} GROUP BY label ORDER BY value DESC,label LIMIT 30''', args)
+    charts['comment_trend'] = rows(db, 'SELECT date(m.published_at,\'+8 hours\') label,count(*) value ' + parent + ' AND m.published_at IS NOT NULL GROUP BY label ORDER BY label', args)
+    # SQL groups repeated bodies first; bounded term extraction avoids loading
+    # the whole comment database. UI discloses this sampling boundary.
+    bodies = rows(db, 'SELECT m.body,count(*) n ' + parent + " AND nullif(trim(m.body),'') IS NOT NULL GROUP BY m.body ORDER BY max(coalesce(m.collected_at,m.published_at,'')) DESC,m.body LIMIT 5000", args)
+    from .comment_analysis import analyze
+    analysis = analyze(bodies, summary['comment_count'])
+    charts['words'] = analysis['words']
+    authors = rows(db, f'''SELECT c.platform,c.author_id,max(c.author) author,count(*) content_count,
+        sum(c.likes) likes,count(c.likes) valid_likes_count FROM analytics_content c WHERE {where}
+        AND c.author_id IS NOT NULL GROUP BY c.platform,c.author_id ORDER BY content_count DESC,c.platform,c.author_id LIMIT 20''', args)
+    return dict(ready=ready, summary=summary, charts=charts, authors=authors,
+                generated_at=datetime.now(timezone.utc).isoformat(),
+                keywords=rows(db, "SELECT DISTINCT keyword FROM analytics_content WHERE keyword IS NOT NULL AND keyword!='' ORDER BY keyword LIMIT 500"),
+                word_sample_bodies=len(bodies), comment_analysis=analysis)
 
 INTERACTIONS = '(coalesce(c.likes,0)+coalesce(c.favorites,0)+coalesce(c.comments,0)+coalesce(c.shares,0))'
 

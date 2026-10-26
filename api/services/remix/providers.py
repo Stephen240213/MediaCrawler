@@ -10,17 +10,40 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .schemas import AnalysisReport
-from . import moss
+from .schemas import AnalysisReport, CreationReport
+from . import moss, evidence_policy
+from pydantic import ValidationError
 
-PROMPT_VERSION = 'remix-v6-scoped-citations'
+PROMPT_VERSION = 'remix-v8-typed-evidence-artifacts'
 MAX_SECONDS = 15*60
 MAX_SOURCE_CHARS = 30000
 MAX_SEGMENTS = 600
 
 
 class AnalysisError(ValueError):
-    pass
+    def __init__(self,message,*,diagnostics=None,candidate=None):
+        super().__init__(message)
+        self.diagnostics=diagnostics
+        self.candidate=candidate
+
+
+def report_model(evidence):
+    return CreationReport if any(e.get('kind')=='creation_execution' for e in evidence) else AnalysisReport
+
+
+def schema_issues(error):
+    # Never include rejected field values, generated prose, credentials or URLs.
+    messages={'missing':'缺少必填字段','too_short':'内容或条数不足','too_long':'内容或条数超过上限',
+              'literal_error':'必须从给定选项选择','string_type':'需要文本','list_type':'需要列表',
+              'model_type':'需要对象','extra_forbidden':'包含未定义字段','int_parsing':'需要整数'}
+    result=[]
+    for item in error.errors(include_input=False,include_url=False)[:12]:
+        location='.'.join(str(v) if isinstance(v,int) or str(v) in SCHEMA_FIELDS else '未知字段' for v in item['loc'])
+        result.append(dict(field=location or 'report',code=item['type'],message=messages.get(item['type'],'字段类型或结构不正确')))
+    return result
+
+
+SCHEMA_FIELDS=set(AnalysisReport.model_fields)|{'observation','interpretation','evidence_ids','dimension','findings','title','outline','angle','framework','basis','title_options','reason','body','hook','script','cover_text','visuals','tags','fact_checks','change_notes'}
 
 
 def config():
@@ -178,9 +201,11 @@ async def transcribe(audio, duration, folder):
 
 def validate_report(raw, evidence, require_creation=False):
     try:
-        report=AnalysisReport.model_validate(raw)
-    except ValueError:
-        raise AnalysisError('模型报告格式不符合要求，可重试生成') from None
+        report=report_model(evidence).model_validate(raw)
+    except ValidationError as exc:
+        issues=schema_issues(exc)
+        detail='；'.join(v['field']+'：'+v['message'] for v in issues[:3])
+        raise AnalysisError('模型报告格式不符合要求：'+detail,diagnostics={'kind':'schema','issues':issues},candidate=raw) from None
     valid={e['id'] for e in evidence}
     refs=[report.summary_evidence_ids]+[f.evidence_ids for s in report.sections for f in s.findings]+[i.evidence_ids for i in report.ideas]+[f.evidence_ids for f in report.comment_analysis]+[r.evidence_ids for r in report.rewrites]
     unknown=set().union(*(set(ids)-valid for ids in refs))
@@ -188,13 +213,19 @@ def validate_report(raw, evidence, require_creation=False):
         raise AnalysisError(f'模型报告包含不存在的引用，已拒绝保存（未知编号 {len(unknown)} 个，本次有效引用 {len(valid)} 个）。请使用本次提供的引用编号。')
     if len({s.dimension for s in report.sections})!=len(report.sections):
         raise AnalysisError('模型返回重复的分析维度')
-    comment_ids={e['id'] for e in evidence if e['kind']=='comment'}
-    if any(not set(f.evidence_ids)<=comment_ids for f in report.comment_analysis):
-        raise AnalysisError('评论结论必须引用本次纳入的评论样本')
+    roles=evidence_policy.index(evidence)
+    comment_ids={identifier for identifier,value in roles.items() if 'comment_text' in value}
+    for i,finding in enumerate(report.comment_analysis):
+        basis=evidence_policy.comment_basis(finding.evidence_ids,roles)
+        if basis is None:
+            issue=dict(field=f'comment_analysis.{i}.evidence_ids',code='unsupported_evidence_type',
+                message='评论原文观察需引用原始评论；评论统计结论需引用本机评论统计')
+            raise AnalysisError(issue['message'],diagnostics={'kind':'citation_type','issues':[issue]},candidate=raw)
+        finding.basis=basis
     if require_creation:
         if not report.rewrites or report.recommended_framework=='auto' or not report.framework_reason:
             raise AnalysisError('模型未返回完整改写稿与框架说明，可重试生成')
-        if comment_ids and not report.comment_analysis:
+        if comment_ids and not report.comment_analysis and report_model(evidence) is AnalysisReport:
             raise AnalysisError('模型未分析已纳入的评论样本，可重试生成')
         brief=next((json.loads(e['text']) for e in evidence if e['kind']=='brief'),{})
         chosen=brief.get('framework','auto')
@@ -202,7 +233,7 @@ def validate_report(raw, evidence, require_creation=False):
             raise AnalysisError('模型未遵循所选改写框架，可重试生成')
         if chosen!='auto' and report.recommended_framework!=chosen:
             raise AnalysisError('模型框架建议与所选框架不一致')
-        source_ids={e['id'] for e in evidence if e['kind'] in ('title','body','transcript','supplement') or e['kind']=='source_excerpt' and e.get('factual_source')}
+        source_ids=evidence_policy.factual_ids(evidence)
         if any(not set(r.evidence_ids)&source_ids for r in report.rewrites):
             raise AnalysisError('改写稿需引用原文、语音或用户补充材料')
         execution=next((json.loads(e['text']) for e in evidence if e['kind']=='creation_execution'),{})
@@ -237,11 +268,16 @@ def completion_report(data, evidence):
     except ValueError:
         logging.getLogger(__name__).warning('Analysis output invalid JSON: content_chars=%d',len(content))
         raise AnalysisError('分析模型返回的报告不是完整有效的 JSON，未保存结果；请调整模型或精简输出后重试') from None
-    return validate_report(raw,evidence,require_creation=True)
+    try:
+        return validate_report(raw,evidence,require_creation=True)
+    except AnalysisError as exc:
+        if exc.candidate is None:exc.candidate=raw
+        if exc.diagnostics is None:exc.diagnostics={'kind':'validation','issues':[]}
+        raise
 
 
 def citation_schema(evidence):
-    schema=AnalysisReport.model_json_schema()
+    schema=report_model(evidence).model_json_schema()
     ids=[e['id'] for e in evidence]
     def constrain(node):
         if isinstance(node,dict):
@@ -263,7 +299,7 @@ async def analyze(evidence):
 请用中文返回符合 JSON Schema 的对象，每个分析判断和改写稿均引用真实存在的 evidence id。
 先读取 source_context 和 coverage：平台、作者、发布时间、互动数据若存在，不得再说缺失。null 是未知，0 是已知零值。用户上传素材的原发布平台未知。supplement 是用户提供、未独立核实的补充材料。brief 仅是创作需求，writing_preference 仅是用户确认的表达偏好，不是房源、产品或经历的事实来源。
 sections 分析开头与钩子、内容结构、选题与受众、表达与情绪，分别说清有效表达、理解障碍和如何改。observation 写观察，interpretation 写待验证解释。没有画面就不能声称看到了图片或房源实况。单条内容不能证明爆款因果，不给爆款概率，不虚构价格优势或个人体验。月均租金与年租年付并非天然矛盾，应区分单价、租期和支付方式。
-comment_analysis 只分析 kind=comment 的样本，evidence_ids 必须全部是评论引用。归纳咨询需求、顾虑、误解和可用于改写的回应方向；评论者的陈述不是已证实事实。不把样本等同全部观众，不推断人口画像、整体情绪比例或传播因果，不把点赞数当播放量。没有样本就返回空列表。样本覆盖范围由 coverage 展示，limitations 不再重复列举。
+comment_analysis 区分原始评论与评论统计：原文观察引用 comment_text 证据，主题频次等统计结论引用 comment_statistics；不得用标题、正文或写作要求支撑评论结论。归纳咨询需求、顾虑、误解和可用于改写的回应方向；评论者的陈述不是已证实事实。不把样本等同全部观众，不推断人口画像、整体情绪比例或传播因果，不把点赞数当播放量。没有样本就返回空列表。样本覆盖范围由 coverage 展示，limitations 不再重复列举。
 account_profile 是用户确认的账号定位与风格，不是素材事实或真实观众画像；以当前 brief 的明确要求为准。comment_topics 是代码对本次样本的多标签关键词计数，不能当作情绪或全部观众统计。按 brief 中的平台、受众、目标、语气、保留事实与禁用表达改写。framework 为 auto 时从四类框架选最合适的，解释 recommended_framework 与 framework_reason；用户选了具体框架时所有改写稿必须使用该框架。
 四类结构：需求解答=问题→直接回答→证据细节→使用条件→行动建议；决策对比=选择困境→比较维度→已知优缺点→适合谁→结论；真实经历=真实场景→问题→已有过程→已有结果→经验；信息筛选=核心条件→亮点→限制→费用门槛→下一步。缺少第一手经历不得编造亲历，真实经历框架可写来源记录的经历或明确的待填写结构。
 生成两篇不同角度的 rewrites（每篇正文建议400–800字，素材不足则更短，不能凑字编造），每篇含三个不同角度的 title_options 及区别理由、完整 body、cover_text、visuals 拍摄或配图建议、tags、fact_checks 待核实项、change_notes 修改说明、来源 evidence_ids。视频模式额外给 hook 开头口播和 script 分段脚本，图文可留空。正文直接可编辑使用，未知必要事实省略或明确留作待补充，不能伪装已核实。视觉建议属于待拍摄方案，不能冒充现有画面。保留 ideas 作为差异化选题和提纲。
@@ -271,9 +307,10 @@ limitations 最多三条，只列影响判断的具体缺口及补充办法，�
     system+='\nproject_research 是用户明确选用的项目研究快照，包含候选解释、来源声明及原文摘录；不是已验证事实、目标账号偏好或亲历。保留 revision_id 与来源口径，不能把不同房源/案例的价格或经历移植到当前素材，不因研究综合而省略核实。'
     execution=next((json.loads(e['text']) for e in evidence if e['kind']=='creation_execution'),None)
     if execution:
+        system+='\n本次是根据已选材料进行创作，不是分析一篇现成文章。输出 summary、summary_evidence_ids、recommended_framework、framework_reason、rewrites、limitations。sections、ideas 和 comment_analysis 可省略或返回空列表，不要为凑齐四个单条内容分析维度而编造观察。rewrites 仍须包含完整正文、三个标题选项、配图建议、修改说明和来源引用。数据统计只支持样本范围内的描述，不替代原文事实。'
         system+='\n本次为创作任务。source_provenance 说明材料来自用户填写、既有模型报告、研究版本或本机数据聚合。保留来源范围，不能将模型推断当作事实。分析维度用于检查材料与表达，重心是生成可编辑成稿。以下为工作台内置 Agent 和 Skill 的执行方法，仅约束写法，不能作为事实引用：\n'+json.dumps(execution,ensure_ascii=False)
-    system+='\n引用协议：输出的 evidence_ids 和 summary_evidence_ids 只能选取用户 JSON 顶层 citation_ids 中的编号，必须逐字匹配。输入资料内部的资源 id、历史引用和未纳入引用都不能直接作为输出引用。R 开头的编号是本次导入的上游原文摘录，origin_kind 标明原类型；评论仅是评论者的说法，旧 brief、coverage 等上下文不是事实。报告内的引用已映射为这些 R 编号。改写稿至少引用一条原文证据（title/body/transcript/supplement，或 factual_source=true 的 source_excerpt），不能只引用报告的改写建议。'
-    model_evidence=[{k:v for k,v in e.items() if k!='upstream_id'} for e in evidence]
+    system+='\n引用协议：输出的 evidence_ids 和 summary_evidence_ids 只能选取用户 JSON 顶层 citation_ids 中的编号，必须逐字匹配。输入资料内部的资源 id、历史引用和未纳入引用都不能直接作为输出引用。R 开头的编号是本次导入的上游摘录，origin_kind 标明原类型；评论仅是评论者的说法，旧 brief、coverage 等上下文不是事实。报告内的引用已映射为这些 R 编号。改写稿至少引用一条原文证据或本机统计证据（capabilities 包含 content_text、user_material、content_statistics 或 comment_statistics）；统计只能支持对应范围内的描述，不能只引用报告的改写建议。'
+    model_evidence=[dict({k:v for k,v in e.items() if k!='upstream_id'},capabilities=sorted(evidence_policy.capabilities(e))) for e in evidence]
     payload={'model':c['model'],'temperature':0.2,'max_tokens':10000,'response_format':{'type':'json_object'},
              'messages':[{'role':'system','content':system+'\n'+json.dumps(citation_schema(evidence),ensure_ascii=False)},
                          {'role':'user','content':json.dumps({'citation_ids':[e['id'] for e in evidence],'evidence':model_evidence},ensure_ascii=False)}]}
@@ -292,7 +329,13 @@ limitations 最多三条，只列影响判断的具体缺口及补充办法，�
             data=response.json()
         except ValueError:
             raise AnalysisError('分析服务返回的 HTTP 响应不是有效 JSON，请检查服务地址或代理') from None
-        report=completion_report(data,evidence)
+        raw_usage=data.get('usage')
+        safe_usage={k:v for k,v in (raw_usage.items() if isinstance(raw_usage,dict) else []) if k in ('prompt_tokens','completion_tokens','total_tokens') and type(v) is int and v>=0}
+        try:report=completion_report(data,evidence)
+        except AnalysisError as exc:
+            exc.usage=safe_usage
+            exc.model=c['model']
+            raise
         raw_usage=data.get('usage')
         usage={k:v for k,v in (raw_usage.items() if isinstance(raw_usage,dict) else []) if k in ('prompt_tokens','completion_tokens','total_tokens') and type(v) is int and v>=0}
         return report,usage,c['model']

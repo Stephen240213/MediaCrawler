@@ -12,13 +12,13 @@ from playwright.sync_api import sync_playwright, expect
 
 
 @pytest.fixture
-def remix_app(tmp_path):
+def remix_app(tmp_path,request):
     with socket.socket() as sock:
         sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
     code='''
 import os,sys,sqlite3,asyncio
 from pathlib import Path
-root=Path(sys.argv[1]);port=int(sys.argv[2])
+root=Path(sys.argv[1]);port=int(sys.argv[2]);mode=sys.argv[3]
 os.environ['MC_REMIX_API_KEY']='test-only-key'
 os.environ['MC_REMIX_ASR']='cloud'
 from api.main import app
@@ -46,7 +46,11 @@ import json
 (root/'media'/'xhs'/'contents.json').write_text(json.dumps([{'title':'旅行资料','content_id':'fixture-note'}]))
 async def model(evidence):
     await asyncio.sleep(.3)
-    return report(evidence),{'total_tokens':123},'browser-fixture-model'
+    candidate=report(evidence)
+    if mode=='rejected-statistics':
+        candidate['comment_analysis']=[dict(observation='本机评论统计',interpretation='仅限本次样本',evidence_ids=['A0001'])]
+        raise providers.AnalysisError('旧规则不接受统计引用',diagnostics={'kind':'citation_type','issues':[{'field':'comment_analysis.0.evidence_ids','code':'fixture','message':'旧规则拒绝统计'}]},candidate=candidate)
+    return candidate,{'total_tokens':123},'browser-fixture-model'
 async def asr(audio,duration,folder):
     return [{'start':0,'end':.8,'text':'浏览器测试转写片段'}]
 providers.analyze=model;providers.transcribe=asr
@@ -57,7 +61,7 @@ import uvicorn
 uvicorn.run(app,host='127.0.0.1',port=port,log_level='warning')
 '''
     with (tmp_path/'server.log').open('w') as log:
-        process=subprocess.Popen([sys.executable,'-c',code,str(tmp_path),str(port)],stdout=log,stderr=log)
+        process=subprocess.Popen([sys.executable,'-c',code,str(tmp_path),str(port),getattr(request,'param','')],stdout=log,stderr=log)
         base=f'http://127.0.0.1:{port}'
         opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
         try:

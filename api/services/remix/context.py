@@ -50,13 +50,20 @@ def snapshot(source, payload, comments=(), saved_total=0):
 
 def build_evidence(source, transcript):
     from .reference_evidence import prepare
+    from .source_archive import model_records, CONTEXT_CHARS
     source, upstream = prepare(source)
+    dataset=model_records(source)
+    complete=bool(source.get('execution')) or source.get('kind') in ('manual','report','research','analytics')
     evidence = []
-    limit = 30000
+    limit = CONTEXT_CHARS if complete else 30000
     def append(kind, text, identifier=None, **extra):
         nonlocal limit
         text = str(text)
-        if not text or len(text) > limit:
+        if not text:return False
+        if len(text)>limit:
+            if complete:
+                from .providers import AnalysisError
+                raise AnalysisError('完整创作素材超过120000字的模型输入上限；来源已保存在本机，未截取部分内容，也未调用模型。请缩小选择范围。')
             return False
         evidence.append(dict(id=identifier or f'E{len(evidence)+1:04d}',kind=kind,text=text,**extra))
         limit -= len(text)
@@ -75,7 +82,7 @@ def build_evidence(source, transcript):
     if source.get('provenance'):
         append('source_provenance', json.dumps(source['provenance'],ensure_ascii=False))
     if source.get('profile'):append('account_profile',json.dumps(source['profile'],ensure_ascii=False))
-    for entry in upstream:
+    for entry in [*upstream,*dataset]:
         append(entry['kind'],entry['text'],identifier=entry['id'],**{k:v for k,v in entry.items() if k not in ('id','kind','text')})
     used = []
     # Preferences guide expression; they are never source facts.
@@ -89,16 +96,16 @@ def build_evidence(source, transcript):
             used_research.append(dict(id=entry['revision_id'],name=entry['name'],assets=len(entry['assets'])))
     samples = source.get('comment_samples',[])
     comment_reserve = min(sum(len(c['text']) for c in samples), 8000, max(0,limit//3))
-    body = source.get('body','')
+    body = '' if dataset else source.get('body','')
     speech_chars = sum(len(s['text']) for s in transcript)
     source_budget = max(0,limit-comment_reserve-6000)
-    body_budget = min(len(body),source_budget//2 if transcript else source_budget)
+    body_budget = len(body) if complete else min(len(body),source_budget//2 if transcript else source_budget)
     body_excerpt = body[:body_budget]
     for start in range(0,len(body_excerpt),600):
         append('report_context' if upstream else 'body',body_excerpt[start:start+600])
     comment_used = 0
     for sample in samples:
-        if len(sample['text']) > comment_reserve:
+        if not complete and len(sample['text']) > comment_reserve:
             break
         append('comment',sample['text'],comment_id=sample['comment_id'],origin=sample['origin'],truncated=sample['truncated'])
         comment_reserve -= len(sample['text'])
@@ -108,7 +115,7 @@ def build_evidence(source, transcript):
         append('comment_topics',json.dumps(dict(rule_version=topic_table['rule_version'],sample_size=topic_table['sample_size'],multi_label=True,groups=[dict(topic=g['topic'],count=g['count'],evidence_ids=g['evidence_ids'][:4]) for g in topic_table['groups']]),ensure_ascii=False))
     speech_used = 0
     for segment in transcript:
-        if len(segment['text'])>limit-6000:
+        if not complete and len(segment['text'])>limit-6000:
             break
         append('transcript',segment['text'],start=segment['start'],end=segment['end'])
         speech_used += len(segment['text'])
@@ -117,7 +124,8 @@ def build_evidence(source, transcript):
         transcript_chars=speech_used,transcript_original_chars=speech_chars,
         comments={**source.get('comment_context',{}),'included':comment_used},used_knowledge=used,used_research=used_research,
         profile=({k:source['profile'][k] for k in ('id','version','name')} if source.get('profile') else None),
-        visual_analysis=False, upstream_evidence=source.get('upstream_coverage'))
+        visual_analysis=False, upstream_evidence=source.get('upstream_coverage'),
+        complete_creation_context=complete, dataset=(dict(**source['dataset_snapshot']['counts'],complete=True) if dataset else None))
     if not append('coverage',json.dumps(coverage,ensure_ascii=False)):
         raise ValueError('分析范围说明超过输入预算，请精简创作需求或写作经验')
     return evidence

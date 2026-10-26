@@ -40,23 +40,24 @@ def test_old_report_ids_are_remapped_to_real_current_excerpts():
         providers.validate_report(valid,evidence,require_creation=True)
 
 
-def test_new_large_report_keeps_structured_snapshot_and_bounded_imports(isolated):
-    source=frozen_source(170,large=True)
+def test_new_large_report_keeps_all_evidence_and_original_body(isolated):
+    source=frozen_source(170)
     original=store.submit(JobInput(source='manual',request_key=uuid4().hex),'fixture',dict(kind='manual',title='父报告',body='原文',video_available=False))
     bundle=json.loads(source['body'])
     store.update(original['id'],status='completed',report=bundle['report'],evidence=bundle['evidence'])
     frozen=workflow.source_for(JobInput(source='report',reference_id=original['id'],request_key=uuid4().hex))
-    assert frozen['truncated'] and len(frozen['reference_bundle']['evidence'])==170
+    assert len(frozen['reference_bundle']['evidence'])==170
     evidence=workflow.build_evidence(frozen,[])
     imported=[e for e in evidence if e['kind']=='source_excerpt']
-    assert len(imported)==160 and sum(len(e['text']) for e in imported)<=12000
+    assert len(imported)==171
+    assert any(e['text']=='原文' for e in imported)
     assert sum(len(e['text']) for e in evidence)<=30000
-    assert all(e['truncated'] for e in imported)
+    assert not any(e['truncated'] for e in imported)
     # Omitted upstream references never masquerade as current citations.
     narrative=''.join(e['text'] for e in evidence if e['kind']=='report_context')
-    assert 'E0170' not in narrative and 'R0170' not in narrative
+    assert 'E0170' not in narrative and 'R0170' in narrative
     coverage=json.loads(next(e['text'] for e in evidence if e['kind']=='coverage'))
-    assert coverage['upstream_evidence']['omitted']==10
+    assert coverage['upstream_evidence']['omitted']==0
 
 
 def test_incomplete_legacy_snapshot_fails_before_model():

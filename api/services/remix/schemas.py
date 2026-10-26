@@ -57,6 +57,10 @@ class Finding(StrictModel):
     evidence_ids: list[str] = Field(min_length=1, max_length=16)
 
 
+class CommentFinding(Finding):
+    basis: Literal['raw_comments','comment_statistics','mixed'] = 'raw_comments'
+
+
 class Section(StrictModel):
     dimension: Literal['开头与钩子', '内容结构', '选题与受众', '表达与情绪']
     findings: list[Finding] = Field(min_length=1, max_length=5)
@@ -121,8 +125,15 @@ class AnalysisReport(StrictModel):
     # Defaults keep historical phase-one reports readable without another model call.
     recommended_framework: Framework = 'auto'
     framework_reason: str = Field(default='', max_length=1000)
-    comment_analysis: list[Finding] = Field(default_factory=list, max_length=5)
+    comment_analysis: list[CommentFinding] = Field(default_factory=list, max_length=5)
     rewrites: list[Rewrite] = Field(default_factory=list, max_length=3)
+
+
+class CreationReport(AnalysisReport):
+    # Creation consumes analysis/data; it does not need to invent four analyses of a post.
+    sections: list[Section] = Field(default_factory=list, max_length=4)
+    ideas: list[Idea] = Field(default_factory=list, max_length=5)
+    rewrites: list[Rewrite] = Field(min_length=1, max_length=3)
 
 
 class ProfileInput(StrictModel):

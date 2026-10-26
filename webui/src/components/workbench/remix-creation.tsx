@@ -35,9 +35,10 @@ export function EvidenceCoverage({evidence}:{evidence:Evidence[]}) {
   if(!entry)return <p className="wb-hint">历史报告使用旧版输入，重新提交素材可生成含评论和完整改写的新报告。</p>
   try {
     const coverage=JSON.parse(entry.text) as {body_chars:number;body_original_chars:number;source_body_previously_truncated:boolean;transcript_chars:number;transcript_original_chars:number;comments:{enabled?:boolean;saved_total?:number;manual_submitted?:number;sampled?:number;included?:number;policy?:string};used_research?:{id:string;name:string;assets:number}[];used_knowledge:{id:string;version:number;title:string;profile_id?:string}[]}
+    const extra=JSON.parse(entry.text) as {complete_creation_context?:boolean;dataset?:{contents:number;comments:number;complete:boolean};upstream_evidence?:{original:number;included:number;omitted:number}}
     const c=coverage.comments
-    return <details><summary>本次分析范围与写作经验</summary><p>正文 {coverage.body_chars}/{coverage.body_original_chars} 字 · 语音 {coverage.transcript_chars}/{coverage.transcript_original_chars} 字{coverage.source_body_previously_truncated?' · 原始正文已截断':''}。本次未分析封面和画面。</p>
-      <p>{c.enabled?`评论：本机已保存 ${c.saved_total??0} 条，手动补充 ${c.manual_submitted??0} 条，取样去重后本次纳入 ${c.included??0} 条。`:'未启用评论分析。'}评论样本仅代表本次纳入内容；互动计数的“评论数”不等于已保存评论数。</p>{c.enabled&&<p>{c.policy}</p>}
+    return <details><summary>本次分析范围与写作经验</summary>{extra.dataset&&<p>完整数据来源：内容 {extra.dataset.contents} 条 · 原始评论 {extra.dataset.comments} 条，无抽样截断。可在完整来源中逐项查看。</p>}{extra.upstream_evidence&&<p>上游原文证据：纳入 {extra.upstream_evidence.included}/{extra.upstream_evidence.original} 条 · 遗漏 {extra.upstream_evidence.omitted} 条。</p>}<p>正文 {coverage.body_chars}/{coverage.body_original_chars} 字 · 语音 {coverage.transcript_chars}/{coverage.transcript_original_chars} 字{coverage.source_body_previously_truncated?' · 原始正文已截断':''}。本次未分析封面和画面。</p>
+      <p>{extra.dataset?'本次已纳入所选范围的全部已保存原始评论。':c.enabled?`评论：本机已保存 ${c.saved_total??0} 条，手动补充 ${c.manual_submitted??0} 条，取样去重后本次纳入 ${c.included??0} 条。`:'未启用评论分析。'}评论样本仅代表本次纳入内容；互动计数的“评论数”不等于已保存评论数。</p>{c.enabled&&<p>{c.policy}</p>}
       {coverage.used_knowledge.length?<><p>本次复用了以下确认过的经验，后续修改经验不会改变本次快照：</p><ul>{coverage.used_knowledge.map(k=><li key={k.id}>{k.title} · v{k.version} · {k.profile_id?'账号经验':'通用经验'}</li>)}</ul></>:<p>本次没有匹配的写作经验。可在经验库保存通用偏好，或使用相同平台与题材标签。</p>}{!!coverage.used_research?.length&&<><p>本次选用的项目研究快照（候选解释与来源声明待核实）：</p>{coverage.used_research.map(r=><p key={r.id}>{r.name} · {r.id.slice(0,8)} · {r.assets} 项资产</p>)}</>}
     </details>
   }catch{return null}

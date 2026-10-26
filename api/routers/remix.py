@@ -177,6 +177,16 @@ def job_or_404(job_id):
     job=store.get(identifier(job_id))
     if not job:
         raise HTTPException(404,'分析任务不存在')
+    path=store.root()/'jobs'/job_id/'rejected-report.json'
+    job['stored_response_available']=path.is_file()
+    if job['status']=='failed' and path.is_file() and not job.get('artifacts'):
+        from api.services.remix.artifacts import manifest
+        from api.services.remix.revalidation import evidence_hash
+        try:
+            saved=json.loads(path.read_text())
+            if saved.get('evidence_sha256')==evidence_hash(job.get('evidence',[])):
+                job['artifacts']=manifest(saved['candidate'],job.get('evidence',[]))
+        except (ValueError,OSError):pass
     return job
 
 
@@ -260,6 +270,50 @@ def get_job(job_id: str):
     return job_or_404(job_id)
 
 
+@router.post('/jobs/{job_id}/revalidate')
+def revalidate_saved_response(job_id: str):
+    from api.services.remix.revalidation import restore
+    job_or_404(job_id)
+    try:return restore(identifier(job_id))
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/jobs/{job_id}/draft-candidates')
+def draft_candidates(job_id: str):
+    from api.services.remix.artifacts import draft_candidates
+    job=job_or_404(job_id)
+    path=store.root()/'jobs'/identifier(job_id)/'rejected-report.json'
+    if not path.is_file():return {'items':[]}
+    from api.services.remix.revalidation import evidence_hash
+    saved=json.loads(path.read_text())
+    if saved.get('evidence_sha256')!=evidence_hash(job.get('evidence',[])):raise HTTPException(409,'已保存产物与当前来源版本不一致')
+    candidate=saved['candidate']
+    return {'items':draft_candidates(candidate,job.get('evidence',[])), 'review_required':True}
+
+
+@router.get('/jobs/{job_id}/source-records')
+def source_records(job_id: str,kind: str=Query('',pattern=r'^(|analysis|content|comment|evidence)$'),page: int=Query(1,ge=1),record_id: str=Query('',max_length=200)):
+    from api.services.remix.source_archive import records
+    return records(job_or_404(job_id),kind,page,record_id)
+
+
+@router.get('/jobs/{job_id}/source-archive.json')
+def source_archive(job_id: str):
+    from api.services.remix.source_archive import archive
+    data=archive(job_or_404(job_id))
+    return Response(json.dumps(data,ensure_ascii=False),media_type='application/json',headers={
+        'Cache-Control':'no-store','Content-Disposition':f'attachment; filename="sources-{identifier(job_id)}.json"'})
+
+
+@router.get('/jobs/{job_id}/rejected-report.json')
+def rejected_report(job_id: str):
+    job_or_404(job_id)
+    path=store.root()/'jobs'/identifier(job_id)/'rejected-report.json'
+    if not path.is_file():raise HTTPException(404,'此历史任务没有保存模型失败响应，无法复原具体字段错误')
+    return Response(path.read_bytes(),media_type='application/json',headers={
+        'Cache-Control':'no-store','Content-Disposition':f'attachment; filename="rejected-{identifier(job_id)}.json"'})
+
+
 @router.get('/jobs/{job_id}/source-link')
 def original_source_link(job_id: str):
     job=job_or_404(job_id)
@@ -281,7 +335,9 @@ async def cancel(job_id: str):
 
 @router.post('/jobs/{job_id}/retry')
 def retry(job_id: str):
-    job_or_404(job_id)
+    job=job_or_404(job_id)
+    if job.get('source',{}).get('kind')=='analytics' and not job['source'].get('dataset_snapshot'):
+        raise HTTPException(409,'此历史任务只冻结了统计摘要，缺少原始正文与评论。请按原筛选重新创作并保存完整来源；未调用模型。')
     try:
         if not providers.status()['model_ready']:
             raise ValueError('分析模型未配置，请先更新本机配置')
@@ -454,8 +510,8 @@ def profile_history(profile_id: str):
 @router.get('/jobs/{job_id}/comment-topics')
 def comment_topics(job_id: str):
     job=job_or_404(job_id)
-    if job.get('comment_topics'):return job['comment_topics']
     from api.services.remix import topics
+    if job.get('comment_topics',{}).get('rule_version')==topics.RULE_VERSION:return job['comment_topics']
     return {**topics.build(job.get('evidence',[])),'historical_recalculation':True}
 
 

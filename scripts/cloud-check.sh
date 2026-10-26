@@ -16,7 +16,7 @@ uv run --frozen pytest \
   tests/test_remix_source_links.py tests/test_remote_access.py \
   tests/test_content_projects.py tests/test_asset_catalog.py tests/test_workspace_backup.py \
   tests/test_remix_research.py tests/test_analytics.py tests/test_collection_batches.py \
-  tests/test_creation_workspace.py tests/test_creation_citations.py tests/test_redfox.py tests/test_redfox_dates.py -q
+  tests/test_creation_workspace.py tests/test_creation_citations.py tests/test_creation_sources_and_contract.py tests/test_evidence_artifact_recovery.py tests/test_redfox.py tests/test_redfox_dates.py -q
 # Requires the production bundle built above. Browser requests use local fixtures.
 uv run --frozen pytest tests/test_remix_browser.py tests/test_projects_browser.py tests/test_research_browser.py tests/test_collection_browser.py \
-  tests/test_creation_workspace_browser.py tests/test_draft_studio_browser.py tests/test_redfox_browser.py -q
+  tests/test_creation_workspace_browser.py tests/test_draft_studio_browser.py tests/test_source_archive_browser.py tests/test_redfox_browser.py -q

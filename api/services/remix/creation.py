@@ -23,6 +23,7 @@ def source_for(payload):
     provenance = dict(kind=payload.source)
     title = payload.title.strip()
     reference_bundle = None
+    dataset_snapshot = None
     if payload.source == 'manual':
         body = payload.material.strip()
         title = title or '手填材料创作'
@@ -31,7 +32,7 @@ def source_for(payload):
         job = store.get(payload.reference_id)
         if not job or job['status'] != 'completed' or not job.get('report'):
             raise ValueError('请选择已完成的分析报告')
-        reference_bundle = dict(report=job['report'], evidence=job.get('evidence', []), source_kind=job.get('source',{}).get('kind','unknown'))
+        reference_bundle = dict(report=job['report'], evidence=job.get('evidence', []), source_kind=job.get('source',{}).get('kind','unknown'), source_data=job.get('source',{}),transcript=job.get('transcript',[]))
         body = json.dumps(reference_bundle, ensure_ascii=False)
         title = title or job['title']+' · 创作'
         provenance.update(job_id=job['id'], updated_at=job['updated_at'], note='模型分析包含推断，引用原文保留在报告中')
@@ -48,10 +49,10 @@ def source_for(payload):
         if set(payload.analytics_filters)-allowed or any(len(v)>500 for v in payload.analytics_filters.values()):
             raise ValueError('数据分析筛选参数无效')
         options = payload.analytics_filters
-        result = analytics.overview(options)
-        if not result.get('ready') or not result.get('summary', {}).get('content_count'):
-            raise ValueError('当前筛选没有可用于创作的数据，请先保存采集数据或调整筛选')
-        body = json.dumps(dict(filters=options, generated_at=result['generated_at'], summary=result['summary'], charts=result['charts'], comment_analysis=result.get('comment_analysis'), note='本机聚合与有界评论样本；不代表平台全量，不证明因果'), ensure_ascii=False)
+        from .source_archive import analytics_snapshot
+        dataset_snapshot=analytics_snapshot(options)
+        result=dataset_snapshot['analysis']
+        body=json.dumps(dict(filters=options,generated_at=result['generated_at'],summary=result['summary'],charts=result['charts'],comment_analysis=result.get('comment_analysis'),note='完整原始记录与统计保存在任务来源包'),ensure_ascii=False)
         title = title or '数据洞察创作'
         provenance.update(filters=options, generated_at=result['generated_at'])
     else:
@@ -66,6 +67,8 @@ def source_for(payload):
         raise ValueError('视频脚本 Agent 需要选择视频内容类型')
     source = context.snapshot(dict(kind=payload.source, title=title[:200], body=body[:18000], original_body_chars=len(body), truncated=len(body)>18000,
         url=None, video_available=False, provenance=provenance, execution=dict(agent=agent.copy(), skills=skills)), payload)
+    if dataset_snapshot is not None:
+        source['dataset_snapshot']=dataset_snapshot
     if reference_bundle is not None:
         source['reference_bundle'] = reference_bundle
     return source

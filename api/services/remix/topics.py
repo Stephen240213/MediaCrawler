@@ -1,5 +1,7 @@
 """Versioned, deterministic topic counts over the included comment sample only."""
-RULE_VERSION='comment-topics-v1'
+from .evidence_policy import capabilities
+
+RULE_VERSION='comment-topics-v2-typed-comments'
 RULES=(
  ('费用与支付',('多少钱','价格','费用','租金','月租','年付','押金','水电','管理费','预算','收费'), '明确价格口径、费用范围和付款方式'),
  ('门槛与条件',('条件','要求','限制','短租','长租','月租','宠物','能不能','可以吗','适合','资格'), '说明适用条件、限制和不适用情况'),
@@ -12,7 +14,7 @@ RULES=(
 
 
 def build(evidence):
-    comments=[e for e in evidence if e['kind']=='comment']
+    comments=[e for e in evidence if 'comment_text' in capabilities(e)]
     groups=[];matched=set()
     for name,words,action in RULES:
         hits=[e for e in comments if any(word in e['text'] for word in words)]
@@ -24,4 +26,4 @@ def build(evidence):
     if other:groups.append(dict(topic='其他反馈',count=len(other),evidence_ids=other,
         information_gap='规则未归入具体议题，需结合原评论判断',rewrite_action='人工检查代表评论，避免根据关键词推断情绪'))
     return dict(rule_version=RULE_VERSION,sample_size=len(comments),multi_label=True,groups=groups,
-                scope='仅统计本次纳入的去重评论；一条可归入多个议题，类别计数不能直接相加。关键词规则不是情绪、真实满意度或全体观众判断。')
+                scope='仅统计本次纳入的评论记录；一条可归入多个议题，类别计数不能直接相加。关键词规则不是情绪、真实满意度或全体观众判断。')
