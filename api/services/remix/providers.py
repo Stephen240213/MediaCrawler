@@ -10,11 +10,11 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .schemas import AnalysisReport, CreationReport
-from . import moss, evidence_policy
+from .schemas import AnalysisReport, CreationReport, AnalysisOnlyReport, WritingReport
+from . import moss, evidence_policy, task_contracts
 from pydantic import ValidationError
 
-PROMPT_VERSION = 'remix-v8-typed-evidence-artifacts'
+PROMPT_VERSION = 'remix-v9-independent-analysis-writing'
 MAX_SECONDS = 15*60
 MAX_SOURCE_CHARS = 30000
 MAX_SEGMENTS = 600
@@ -28,6 +28,8 @@ class AnalysisError(ValueError):
 
 
 def report_model(evidence):
+    if task_contracts.mode(evidence)=='analysis':return AnalysisOnlyReport
+    if task_contracts.mode(evidence)=='writing':return WritingReport
     return CreationReport if any(e.get('kind')=='creation_execution' for e in evidence) else AnalysisReport
 
 
@@ -222,6 +224,8 @@ def validate_report(raw, evidence, require_creation=False):
                 message='评论原文观察需引用原始评论；评论统计结论需引用本机评论统计')
             raise AnalysisError(issue['message'],diagnostics={'kind':'citation_type','issues':[issue]},candidate=raw)
         finding.basis=basis
+    if task_contracts.mode(evidence)=='analysis' and comment_ids and not report.comment_analysis:
+        raise AnalysisError('模型未分析已纳入的评论样本，可重试生成')
     if require_creation:
         if not report.rewrites or report.recommended_framework=='auto' or not report.framework_reason:
             raise AnalysisError('模型未返回完整改写稿与框架说明，可重试生成')
@@ -237,7 +241,8 @@ def validate_report(raw, evidence, require_creation=False):
         if any(not set(r.evidence_ids)&source_ids for r in report.rewrites):
             raise AnalysisError('改写稿需引用原文、语音或用户补充材料')
         execution=next((json.loads(e['text']) for e in evidence if e['kind']=='creation_execution'),{})
-        if execution.get('agent',{}).get('id')=='script_writer' and any(not r.hook or not r.script for r in report.rewrites):
+        agent=execution.get('agent',{})
+        if (agent.get('content_type')=='视频' or agent.get('id')=='script_writer') and any(not r.hook or not r.script for r in report.rewrites):
             raise AnalysisError('视频脚本 Agent 未返回口播开头与分段脚本，可重试生成')
     return report.model_dump()
 
@@ -269,7 +274,7 @@ def completion_report(data, evidence):
         logging.getLogger(__name__).warning('Analysis output invalid JSON: content_chars=%d',len(content))
         raise AnalysisError('分析模型返回的报告不是完整有效的 JSON，未保存结果；请调整模型或精简输出后重试') from None
     try:
-        return validate_report(raw,evidence,require_creation=True)
+        return validate_report(raw,evidence,require_creation=task_contracts.mode(evidence)!='analysis')
     except AnalysisError as exc:
         if exc.candidate is None:exc.candidate=raw
         if exc.diagnostics is None:exc.diagnostics={'kind':'validation','issues':[]}
@@ -292,6 +297,14 @@ def citation_schema(evidence):
 
 
 async def analyze(evidence):
+    return await generate(evidence)
+
+
+async def write(evidence):
+    return await generate(evidence)
+
+
+async def generate(evidence):
     c=config();validate_base(c['base_url'])
     if not c['api_key']:
         raise AnalysisError('请先在 Mac 后端配置 MC_REMIX_API_KEY')
@@ -309,6 +322,16 @@ limitations 最多三条，只列影响判断的具体缺口及补充办法，�
     if execution:
         system+='\n本次是根据已选材料进行创作，不是分析一篇现成文章。输出 summary、summary_evidence_ids、recommended_framework、framework_reason、rewrites、limitations。sections、ideas 和 comment_analysis 可省略或返回空列表，不要为凑齐四个单条内容分析维度而编造观察。rewrites 仍须包含完整正文、三个标题选项、配图建议、修改说明和来源引用。数据统计只支持样本范围内的描述，不替代原文事实。'
         system+='\n本次为创作任务。source_provenance 说明材料来自用户填写、既有模型报告、研究版本或本机数据聚合。保留来源范围，不能将模型推断当作事实。分析维度用于检查材料与表达，重心是生成可编辑成稿。以下为工作台内置 Agent 和 Skill 的执行方法，仅约束写法，不能作为事实引用：\n'+json.dumps(execution,ensure_ascii=False)
+    mode=task_contracts.mode(evidence)
+    if mode=='analysis':
+        system=system.replace('你是内容分析与原创改写助手','你是证据驱动的内容分析助手',1)
+        system='\n'.join(line for line in system.splitlines() if not line.startswith(('四类结构：','生成两篇不同角度','account_profile 是')))
+        system+='\n本次是独立分析任务。只生成内容理解、四个维度的证据拆解、评论分析、选题线索和局限。不要生成改写稿，不要选择写作框架，rewrites 必须为空列表，recommended_framework 为 auto，framework_reason 为空。后续写作由用户另行创建独立任务，本次禁止代替该任务写正文。'
+    elif mode=='writing':
+        system=system.replace('你是内容分析与原创改写助手','你是基于已保存分析的写作助手',1)
+        system='\n'.join(line for line in system.splitlines() if not line.startswith(('sections 分析','comment_analysis 区分','本次是根据已选材料','本次为创作任务。')))
+        system+='\n本次是独立写作任务，复用已保存的分析结果和原始证据。不得重新做内容拆解或评论分析，不得重新统计样本；sections、ideas、comment_analysis 必须为空或省略。只输出创作摘要、引用、框架理由、完整 rewrites 与待核实项。上游分析是冻结的参考结论，事实仍需引用原始来源或本机统计。'
+        system+='\n所选 Agent 与 Skill 的冻结版本（仅约束写法，不提供工具或新增事实）：'+json.dumps(execution,ensure_ascii=False)
     system+='\n引用协议：输出的 evidence_ids 和 summary_evidence_ids 只能选取用户 JSON 顶层 citation_ids 中的编号，必须逐字匹配。输入资料内部的资源 id、历史引用和未纳入引用都不能直接作为输出引用。R 开头的编号是本次导入的上游摘录，origin_kind 标明原类型；评论仅是评论者的说法，旧 brief、coverage 等上下文不是事实。报告内的引用已映射为这些 R 编号。改写稿至少引用一条原文证据或本机统计证据（capabilities 包含 content_text、user_material、content_statistics 或 comment_statistics）；统计只能支持对应范围内的描述，不能只引用报告的改写建议。'
     model_evidence=[dict({k:v for k,v in e.items() if k!='upstream_id'},capabilities=sorted(evidence_policy.capabilities(e))) for e in evidence]
     payload={'model':c['model'],'temperature':0.2,'max_tokens':10000,'response_format':{'type':'json_object'},

@@ -13,7 +13,7 @@ from langsmith import tracing_context
 from api.services import analytics
 from api.services.lease import Lease
 from media_downloader.paths import build_media_dir
-from . import store, providers, context, topics, research
+from . import store, providers, context, topics, research, task_contracts
 from .providers import AnalysisError
 
 
@@ -31,6 +31,17 @@ class State(TypedDict, total=False):
 
 
 def source_for(payload):
+    if payload.task_kind=='analysis' and payload.source not in ('xhs','upload'):
+        raise AnalysisError('独立内容分析请选择已有内容或上传视频；数据统计和研究结果可直接用于写作')
+    if payload.task_kind=='writing' and payload.source in ('xhs','upload'):
+        raise AnalysisError('写作任务请复用已完成分析，或选择手填材料、数据统计、研究版本')
+    if payload.reuse_job_id and payload.task_kind!='writing':raise AnalysisError('仅写作任务支持复用已有来源')
+    source=_source_for(payload)
+    if payload.task_kind!='legacy':source['task_kind']=payload.task_kind
+    return source
+
+
+def _source_for(payload):
     if payload.source in ('manual', 'report', 'analytics', 'research'):
         from .creation import source_for as creation_source
         return creation_source(payload)
@@ -151,8 +162,24 @@ async def evidence_node(state):
     return {'evidence':evidence}
 
 
+async def reuse_node(state):
+    """Writing starts from its frozen package; never rerun media, ASR or analysis."""
+    job=store.get(state['job_id']);stage(job['id'],'reuse')
+    transcript=job['source'].get('reused_transcript',[])
+    duration=job['source'].get('reused_duration')
+    return {**await evidence_node(dict(state,transcript=transcript,duration=duration)), 'transcript':transcript,'duration':duration}
+
+
 async def analysis_node(state):
-    stage(state['job_id'],'analyze')
+    return await generate_node(state,'analyze',providers.analyze)
+
+
+async def writing_node(state):
+    return await generate_node(state,'write',providers.write)
+
+
+async def generate_node(state,stage_name,generate):
+    stage(state['job_id'],stage_name)
     job=store.get(state['job_id'])
     evidence=state['evidence']
     if job['source'].get('kind') in ('report','research'):
@@ -165,7 +192,7 @@ async def analysis_node(state):
                                      prompt=providers.PROMPT_VERSION),sort_keys=True).encode()).hexdigest()
     cached=store.cached_report(key)
     if cached:
-        providers.validate_report(cached['report'],evidence)
+        providers.validate_report(cached['report'],evidence,require_creation=task_contracts.mode(evidence)=='writing')
         return dict(evidence=evidence,report=cached['report'],usage={'total_tokens':0},model=cached['model'],cache_hit=True)
     rejected=folder_for(job['id'])/'rejected-report.json'
     evidence_hash=hashlib.sha256(json.dumps(evidence,sort_keys=True).encode()).hexdigest()
@@ -173,7 +200,7 @@ async def analysis_node(state):
         saved=json.loads(rejected.read_text())
         if saved.get('evidence_sha256')==evidence_hash:
             try:
-                recovered=providers.validate_report(saved['candidate'],evidence,require_creation=True)
+                recovered=providers.validate_report(saved['candidate'],evidence,require_creation=task_contracts.mode(evidence)!='analysis')
             except AnalysisError:
                 pass
             else:
@@ -181,8 +208,8 @@ async def analysis_node(state):
                 return dict(evidence=evidence,report=recovered,usage=saved.get('usage',{}),model=saved.get('model',config['model']),cache_hit=False,
                     recovery_metadata=dict(prompt_version=saved.get('prompt_version'),model_generated_at=saved.get('created_at')))
     try:
-        report,usage,model=await providers.analyze(evidence)
-        providers.validate_report(report,evidence)
+        report,usage,model=await generate(evidence)
+        providers.validate_report(report,evidence,require_creation=task_contracts.mode(evidence)=='writing')
     except AnalysisError as exc:
         if exc.diagnostics:
             from .artifacts import manifest
@@ -198,7 +225,7 @@ async def analysis_node(state):
 
 async def validate_node(state):
     job=store.get(state['job_id']);stage(job['id'],'validate')
-    report=providers.validate_report(state['report'],state['evidence'])
+    report=providers.validate_report(state['report'],state['evidence'],require_creation=task_contracts.mode(state['evidence'])=='writing')
     limitations=[]
     if not job['source'].get('body'):
         limitations.append('没有独立正文，内容分析基于标题、所选语音及补充材料。')
@@ -224,8 +251,12 @@ async def validate_node(state):
     return {'report':report}
 
 
-def graph(checkpointer):
+def graph(checkpointer,kind='legacy'):
     builder=StateGraph(State)
+    if kind=='writing':
+        for name,node in [('reuse',reuse_node),('write',writing_node),('validate',validate_node)]:builder.add_node(name,node)
+        for a,b in zip([START,'reuse','write','validate'],['reuse','write','validate',END]):builder.add_edge(a,b)
+        return builder.compile(checkpointer=checkpointer)
     for name,node in [('media',media_node),('transcribe',transcript_node),('evidence',evidence_node),('analyze',analysis_node),('validate',validate_node)]:
         builder.add_node(name,node)
     sequence=[START,'media','transcribe','evidence','analyze','validate',END]
@@ -237,7 +268,7 @@ def graph(checkpointer):
 async def run(job_id):
     with tracing_context(enabled=False):
         async with AsyncSqliteSaver.from_conn_string(str(store.root()/'checkpoints.sqlite3')) as saver:
-            workflow=graph(saver)
+            workflow=graph(saver,task_contracts.kind(store.get(job_id)))
             options={'configurable':{'thread_id':job_id},'recursion_limit':12}
             checkpoint=await workflow.aget_state(options)
             initial=None if checkpoint.values else {'job_id':job_id}

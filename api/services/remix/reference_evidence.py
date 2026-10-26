@@ -33,7 +33,7 @@ def prepare(source):
     known_texts={e.get('text') for e in originals}
     for i,segment in enumerate(bundle.get('transcript',[])):
         if segment.get('text') and segment['text'] not in known_texts:
-            originals.append(dict(id=f'raw:transcript:{i}',kind='transcript',text=segment['text']))
+            originals.append(dict(id=f'raw:transcript:{i}',kind='transcript',text=segment['text'],**{k:segment[k] for k in ('start','end') if k in segment}))
     valid = [e for e in originals if isinstance(e, dict) and isinstance(e.get('id'), str)
              and isinstance(e.get('text'), str) and e['text'].strip()]
     if not valid:
@@ -74,7 +74,8 @@ def prepare(source):
         imported.append(dict(id=mapping[e['id']], kind='source_excerpt', text=excerpt,
             origin_kind=e.get('origin_kind', e.get('kind', 'unknown')), upstream_id=e['id'],
             factual_source=factual(e),
-            truncated=len(excerpt)<len(normalized) or bool(e.get('truncated'))))
+            truncated=len(excerpt)<len(normalized) or bool(e.get('truncated')),
+            **{k:e[k] for k in ('start','end') if k in e}))
     # The model receives the report narrative once, alongside the actual source excerpts.
     # Old citation strings are replaced only via the known input map, never on model output.
     narrative = {k: v for k, v in bundle.items() if k not in ('evidence','source_kind','source_data','transcript')}

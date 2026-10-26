@@ -1,29 +1,37 @@
 """Built-in creation agents and versioned skills, with frozen source provenance."""
 import json
-from . import store, context, providers, research
+from . import store, context, providers, research, registry, task_contracts
 from api.services import analytics
 
-AGENTS = [
-    dict(id='content_writer', name='内容创作 Agent', description='根据来源和创作需求生成图文草稿', instruction='以图文阅读场景组织完整、可编辑的正文。'),
-    dict(id='script_writer', name='视频脚本 Agent', description='生成口播开头、分段脚本与画面建议', instruction='以短视频口播场景创作，提供 hook 和分段 script；视觉仅作为待拍摄建议。'),
-]
-SKILLS = [
-    dict(id='answer', name='需求解答', version=1, instruction='先给直接答案，再用来源细节解释使用条件和下一步。'),
-    dict(id='compare', name='决策对比', version=1, instruction='按相同维度比较选项，区分已知、未知与适合人群，不混用不同案例的事实。'),
-    dict(id='story', name='经历叙事', version=1, instruction='按场景、问题、过程、结果组织来源记录的经历；不得虚构第一人称亲历。'),
-    dict(id='curate', name='信息整理', version=1, instruction='提炼关键条件、亮点、限制和待核实事项，数据需保留样本范围和时间。'),
-]
+AGENTS = registry.AGENTS
+SKILLS = registry.SKILLS
 
 
 def catalog():
-    return dict(agents=AGENTS, skills=SKILLS, model=providers.status())
+    return dict(agents=[a for a in registry.listing('agent') if a['enabled']], skills=[s for s in registry.listing('skill') if s['enabled']], model=providers.status())
 
 
 def source_for(payload):
+    if payload.reuse_job_id:
+        previous=store.get(payload.reuse_job_id)
+        if payload.task_kind!='writing' or not previous or not previous.get('source',{}).get('execution'):
+            raise ValueError('请选择已有写作任务复用来源')
+        if payload.source!=previous['source']['kind']:
+            raise ValueError('复用任务时不能同时更换来源类型')
+        # Deep-copy the exact frozen package. Do not reopen live analytics or a parent.
+        source=json.loads(json.dumps(previous['source']))
+        source['execution']=registry.resolve(payload.agent_id,payload.skill_ids,payload.brief.content_type,payload.agent_version,payload.skill_versions)
+        if payload.title.strip():source['title']=payload.title.strip()
+        return context.snapshot(source,payload)
     provenance = dict(kind=payload.source)
     title = payload.title.strip()
     reference_bundle = None
     dataset_snapshot = None
+    dependency = None
+    media_owner = None
+    inherited_transcript = []
+    inherited_duration = None
+    original_url = None
     if payload.source == 'manual':
         body = payload.material.strip()
         title = title or '手填材料创作'
@@ -32,6 +40,11 @@ def source_for(payload):
         job = store.get(payload.reference_id)
         if not job or job['status'] != 'completed' or not job.get('report'):
             raise ValueError('请选择已完成的分析报告')
+        dependency=dict(job_id=job['id'],result_sha256=task_contracts.result_hash(job),kind=task_contracts.kind(job),title=job['title'])
+        original_url=job.get('source',{}).get('url')
+        inherited_transcript=job.get('transcript') or []
+        inherited_duration=job.get('duration')
+        media_owner=job['source'].get('media_owner_id') or (job['id'] if job['input'].get('analyze_video') else None)
         reference_bundle = dict(report=job['report'], evidence=job.get('evidence', []), source_kind=job.get('source',{}).get('kind','unknown'), source_data=job.get('source',{}),transcript=job.get('transcript',[]))
         body = json.dumps(reference_bundle, ensure_ascii=False)
         title = title or job['title']+' · 创作'
@@ -61,12 +74,11 @@ def source_for(payload):
         raise ValueError('请填写创作材料')
     if payload.analyze_video:
         raise ValueError('此创作来源不支持视频转写，请在内容分析中上传视频')
-    agent = next(a for a in AGENTS if a['id'] == payload.agent_id)
-    skills = [s.copy() for s in SKILLS if s['id'] in payload.skill_ids]
-    if agent['id'] == 'script_writer' and payload.brief.content_type != '视频':
-        raise ValueError('视频脚本 Agent 需要选择视频内容类型')
+    execution=registry.resolve(payload.agent_id,payload.skill_ids,payload.brief.content_type,payload.agent_version,payload.skill_versions)
     source = context.snapshot(dict(kind=payload.source, title=title[:200], body=body[:18000], original_body_chars=len(body), truncated=len(body)>18000,
-        url=None, video_available=False, provenance=provenance, execution=dict(agent=agent.copy(), skills=skills)), payload)
+        url=original_url, video_available=False, provenance=provenance, execution=execution), payload)
+    if dependency is not None:
+        source.update(analysis_dependency=dependency,reused_transcript=inherited_transcript,reused_duration=inherited_duration,media_owner_id=media_owner)
     if dataset_snapshot is not None:
         source['dataset_snapshot']=dataset_snapshot
     if reference_bundle is not None:

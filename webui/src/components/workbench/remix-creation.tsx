@@ -15,11 +15,11 @@ type Entry = {profile_id?:string;id?:string;kind:string;title:string;content:str
 const emptyEntry:Entry={profile_id:'',kind:'preference',title:'',content:'',platform:'all',topic:'',reason:'',enabled:true,version:1,source_job_id:'',source_version_id:''}
 const platformNames:Record<string,string>={all:'全部平台',xhs:'小红书',douyin:'抖音',bilibili:'哔哩哔哩',other:'其他'}
 
-export function BriefForm({value,onChange,defaultOpen=true}:{value:Brief;onChange:(value:Brief)=>void;defaultOpen?:boolean}) {
+export function BriefForm({value,onChange,defaultOpen=true,contentTypeLocked=false}:{value:Brief;onChange:(value:Brief)=>void;defaultOpen?:boolean;contentTypeLocked?:boolean}) {
   const field=(key:keyof Brief,text:string,placeholder='')=><label>{text}<input maxLength={key==='must_keep'?1000:key==='topic'?100:300} value={value[key]} placeholder={placeholder} onChange={e=>onChange({...value,[key]:e.target.value})}/></label>
   return <details open={defaultOpen}><summary>创作需求与改写框架</summary><div className="remix-form-grid">
     <label>目标平台<select aria-label="目标平台" value={value.platform} onChange={e=>onChange({...value,platform:e.target.value})}>{Object.entries(platformNames).filter(([k])=>k!=='all').map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>
-    <label>输出形式<select aria-label="输出形式" value={value.content_type} onChange={e=>onChange({...value,content_type:e.target.value})}><option>图文</option><option>视频</option></select></label>
+    <label>输出形式<select aria-label="输出形式" disabled={contentTypeLocked} value={value.content_type} onChange={e=>onChange({...value,content_type:e.target.value})}><option>图文</option><option>视频</option></select>{contentTypeLocked&&<small>由所选 Agent 决定</small>}</label>
     <label>创作目的<select aria-label="创作目的" value={value.objective} onChange={e=>onChange({...value,objective:e.target.value})}>{['分享','收藏','咨询','转化'].map(x=><option key={x}>{x}</option>)}</select></label>
     <label>改写框架<select aria-label="改写框架" value={value.framework} onChange={e=>onChange({...value,framework:e.target.value})}><option value="auto">自动推荐</option>{frameworks.map(x=><option key={x}>{x}</option>)}</select></label>
     {field('audience','目标受众','例如：准备长期旅居、重视生活便利的人')}{field('topic','题材标签','与经验库的题材标签一致时会优先复用')}
@@ -37,9 +37,10 @@ export function EvidenceCoverage({evidence}:{evidence:Evidence[]}) {
     const coverage=JSON.parse(entry.text) as {body_chars:number;body_original_chars:number;source_body_previously_truncated:boolean;transcript_chars:number;transcript_original_chars:number;comments:{enabled?:boolean;saved_total?:number;manual_submitted?:number;sampled?:number;included?:number;policy?:string};used_research?:{id:string;name:string;assets:number}[];used_knowledge:{id:string;version:number;title:string;profile_id?:string}[]}
     const extra=JSON.parse(entry.text) as {complete_creation_context?:boolean;dataset?:{contents:number;comments:number;complete:boolean};upstream_evidence?:{original:number;included:number;omitted:number}}
     const c=coverage.comments
+    const analysisOnly=evidence.some(e=>e.kind==='task_contract'&&JSON.parse(e.text).kind==='analysis')
     return <details><summary>本次分析范围与写作经验</summary>{extra.dataset&&<p>完整数据来源：内容 {extra.dataset.contents} 条 · 原始评论 {extra.dataset.comments} 条，无抽样截断。可在完整来源中逐项查看。</p>}{extra.upstream_evidence&&<p>上游原文证据：纳入 {extra.upstream_evidence.included}/{extra.upstream_evidence.original} 条 · 遗漏 {extra.upstream_evidence.omitted} 条。</p>}<p>正文 {coverage.body_chars}/{coverage.body_original_chars} 字 · 语音 {coverage.transcript_chars}/{coverage.transcript_original_chars} 字{coverage.source_body_previously_truncated?' · 原始正文已截断':''}。本次未分析封面和画面。</p>
       <p>{extra.dataset?'本次已纳入所选范围的全部已保存原始评论。':c.enabled?`评论：本机已保存 ${c.saved_total??0} 条，手动补充 ${c.manual_submitted??0} 条，取样去重后本次纳入 ${c.included??0} 条。`:'未启用评论分析。'}评论样本仅代表本次纳入内容；互动计数的“评论数”不等于已保存评论数。</p>{c.enabled&&<p>{c.policy}</p>}
-      {coverage.used_knowledge.length?<><p>本次复用了以下确认过的经验，后续修改经验不会改变本次快照：</p><ul>{coverage.used_knowledge.map(k=><li key={k.id}>{k.title} · v{k.version} · {k.profile_id?'账号经验':'通用经验'}</li>)}</ul></>:<p>本次没有匹配的写作经验。可在经验库保存通用偏好，或使用相同平台与题材标签。</p>}{!!coverage.used_research?.length&&<><p>本次选用的项目研究快照（候选解释与来源声明待核实）：</p>{coverage.used_research.map(r=><p key={r.id}>{r.name} · {r.id.slice(0,8)} · {r.assets} 项资产</p>)}</>}
+      {analysisOnly?<p>本次只分析来源；写作经验和表达偏好保留给后续独立写作使用，不参与本次分析。</p>:coverage.used_knowledge.length?<><p>本次复用了以下确认过的经验，后续修改经验不会改变本次快照：</p><ul>{coverage.used_knowledge.map(k=><li key={k.id}>{k.title} · v{k.version} · {k.profile_id?'账号经验':'通用经验'}</li>)}</ul></>:<p>本次没有匹配的写作经验。可在经验库保存通用偏好，或使用相同平台与题材标签。</p>}{!!coverage.used_research?.length&&<><p>本次选用的项目研究快照（候选解释与来源声明待核实）：</p>{coverage.used_research.map(r=><p key={r.id}>{r.name} · {r.id.slice(0,8)} · {r.assets} 项资产</p>)}</>}
     </details>
   }catch{return null}
 }

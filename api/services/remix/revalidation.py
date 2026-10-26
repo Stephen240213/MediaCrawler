@@ -2,7 +2,7 @@
 import hashlib
 import json
 
-from . import artifacts, providers, store
+from . import artifacts, providers, store, task_contracts
 
 
 def evidence_hash(evidence):
@@ -21,7 +21,7 @@ def restore(job_id):
     expected=evidence_hash(job.get('evidence',[]))
     if saved.get('evidence_sha256')!=expected:
         raise ValueError('模型响应与当前来源版本不一致，已拒绝拼接不同版本')
-    report=providers.validate_report(saved['candidate'],job['evidence'],require_creation=True)
+    report=providers.validate_report(saved['candidate'],job['evidence'],require_creation=task_contracts.mode(job['evidence'])!='analysis')
     with store.connect() as db:
         db.execute('BEGIN IMMEDIATE')
         row=db.execute('SELECT body FROM jobs WHERE id=?',(job_id,)).fetchone()

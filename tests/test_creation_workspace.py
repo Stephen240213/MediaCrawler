@@ -58,7 +58,7 @@ def test_creation_queue_and_draft_adoption(client,monkeypatch):
         return report(evidence),{'total_tokens':8},'fixture-creation'
     monkeypatch.setattr(providers,'analyze',model)
     catalog=client.get('/api/remix/creation/catalog').json()
-    assert len(catalog['agents'])==2 and len(catalog['skills'])==4
+    assert len(catalog['agents'])>=3 and len(catalog['skills'])>=6
     data=payload(skill_ids=['answer']).model_dump()
     denied=client.post('/api/remix/jobs',json={**data,'consent':False})
     assert denied.status_code==422 and not calls
@@ -77,7 +77,7 @@ def test_creation_queue_and_draft_adoption(client,monkeypatch):
     route=f"/api/remix/jobs/{job['id']}/versions/{version['id']}/adopt"
     draft=client.post(route).json()['draft']
     assert draft['content']==rewrite['body'] and client.post(route).json()['draft']['id']==draft['id']
-    assert client.post('/api/remix/jobs',json={**data,'skill_ids':['untrusted-skill']}).status_code==422
+    assert client.post('/api/remix/jobs',json={**data,'skill_ids':['untrusted-skill'],'request_key':uuid4().hex}).status_code==422
 
 
 def test_research_source_freezes_revision_and_job_search(isolated):

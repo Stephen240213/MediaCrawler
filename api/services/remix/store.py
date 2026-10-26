@@ -67,13 +67,17 @@ def get(job_id):
     return json.loads(row[0]) if row else None
 
 
-def listing(page=1, search='', status=''):
+def listing(page=1, search='', status='', task_kind='',parent_job_id=''):
     clauses=[];args=[]
     if search:
         clauses.append("instr(lower(json_extract(body,'$.title')),lower(?))>0")
         args.append(search)
     if status:
         clauses.append('status=?');args.append(status)
+    if task_kind:
+        clauses.append("coalesce(json_extract(body,'$.task_kind'),'legacy')=?");args.append(task_kind)
+    if parent_job_id:
+        clauses.append("json_extract(body,'$.parent_job_id')=?");args.append(parent_job_id)
     where=' WHERE '+' AND '.join(clauses) if clauses else ''
     with connect() as db:
         total = db.execute('SELECT count(*) FROM jobs'+where,args).fetchone()[0]
@@ -96,6 +100,16 @@ def update(job_id, **values):
     return job
 
 
+def replay(payload,actor):
+    data=payload.model_dump(exclude={'request_key'})
+    digest=hashlib.sha256(json.dumps(data,sort_keys=True).encode()).hexdigest()
+    with connect() as db:
+        row=db.execute('SELECT fingerprint,body FROM jobs WHERE actor=? AND request_key=?',(actor,payload.request_key)).fetchone()
+    if row:
+        if row['fingerprint']!=digest:raise ValueError('重复请求键对应的分析参数不同')
+        return json.loads(row['body'])
+
+
 def submit(payload, actor, source):
     data = payload.model_dump(exclude={'request_key'})
     digest = hashlib.sha256(json.dumps(data,sort_keys=True).encode()).hexdigest()
@@ -110,6 +124,8 @@ def submit(payload, actor, source):
             raise ValueError('分析队列已满（最多 5 个），请等待或取消任务')
         job = dict(id=uuid4().hex, actor=actor, status='queued', stage='queued', created_at=now(),updated_at=now(),
                    input=data, title=source['title'], source=source, error=None, report=None, attempts=1)
+        job.update(task_kind=data.get('task_kind','legacy'),parent_job_id=source.get('analysis_dependency',{}).get('job_id'),
+                   parent_result_sha256=source.get('analysis_dependency',{}).get('result_sha256'),reused_from_job_id=data.get('reuse_job_id') or None)
         db.execute('INSERT INTO jobs VALUES(?,?,?,?,?,?,?)',(job['id'],actor,payload.request_key,digest,job['status'],job['stage'],json.dumps(job,ensure_ascii=False)))
         if data.get('project_id'):
             project=db.execute('SELECT body FROM content_projects WHERE id=?',(data['project_id'],)).fetchone()

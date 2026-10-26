@@ -38,6 +38,9 @@ def note_url(content_id, candidates=(), token=''):
 
 def original_url(job):
     source=job.get('source') or {}
+    for _ in range(12):
+        if source.get('kind')!='report':break
+        source=(source.get('reference_bundle') or {}).get('source_data') or {}
     if source.get('kind')!='xhs':
         return None
     content_id=source.get('content_id') or job.get('input',{}).get('content_id')

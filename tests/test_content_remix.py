@@ -22,6 +22,9 @@ from database import analytics as schema
 
 def report(evidence):
     refs=[evidence[0]['id']]
+    contract=next((json.loads(e['text']) for e in evidence if e['kind']=='task_contract'),{})
+    if contract.get('kind')=='writing':
+        refs=[next(e['id'] for e in evidence if e['kind'] in ('body','supplement') or e.get('origin_kind') in ('body','title') and e.get('factual_source'))]
     comments=[e['id'] for e in evidence if e['kind']=='comment']
     brief=next((json.loads(e['text']) for e in evidence if e['kind']=='brief'),{})
     framework=brief.get('framework','auto')
@@ -32,11 +35,14 @@ def report(evidence):
         hook='先确定你最关心的路线问题。',script=['提出问题','展示安排方法'],cover_text='旅行安排怎么做',
         visuals=['拍摄实际路线示意，标注待核实信息'],tags=['旅行规划'],fact_checks=['核实实际路线'],
         change_notes=['将原文整理为问题与回答结构'],evidence_ids=refs)
-    return dict(summary='测试摘要',summary_evidence_ids=refs,
+    result=dict(summary='测试摘要',summary_evidence_ids=refs,
         sections=[dict(dimension=dimension,findings=[dict(observation='标题提出问题',interpretation='可能引发好奇，需要验证',evidence_ids=refs)]) for dimension in ['开头与钩子','内容结构','选题与受众','表达与情绪']],
         ideas=[dict(title='差异化测试选题',outline=['提出一个可验证的问题','展示真实过程'],evidence_ids=refs)],limitations=['没有对照样本'],
         recommended_framework=framework,framework_reason='素材适合回答具体需求',rewrites=[rewrite],
         comment_analysis=[dict(observation='评论样本询问路线安排',interpretation='改写时补充已有的路线信息',evidence_ids=comments[:1])] if comments else [])
+    if contract.get('kind')=='analysis':result.update(rewrites=[],recommended_framework='auto',framework_reason='')
+    if contract.get('kind')=='writing':result.update(sections=[],ideas=[],comment_analysis=[])
+    return result
 
 
 @pytest.fixture

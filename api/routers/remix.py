@@ -3,6 +3,7 @@ import asyncio
 import json
 import re
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse, RedirectResponse
@@ -10,7 +11,7 @@ from fastapi.responses import Response, StreamingResponse, RedirectResponse
 from api.services import analytics, workbench_store
 from api.services.remix import providers, store, workflow, knowledge, source_links, profiles, publications, production, projects, research
 from api.services.remix.research_schemas import ResearchSpace, ResearchRun, AssetTags
-from api.services.remix.schemas import JobInput, UploadInput, KnowledgeInput, VersionInput, ProfileInput, PublicationInput, ObservationInput, ProductionInput, ProjectInput, ProjectLink, EditorSnapshot
+from api.services.remix.schemas import JobInput, UploadInput, KnowledgeInput, VersionInput, ProfileInput, PublicationInput, ObservationInput, ProductionInput, ProjectInput, ProjectLink, EditorSnapshot, AgentDefinition, SkillDefinition
 
 router=APIRouter(prefix='/remix',tags=['ContentRemixAgent'])
 
@@ -19,6 +20,40 @@ router=APIRouter(prefix='/remix',tags=['ContentRemixAgent'])
 def creation_catalog():
     from api.services.remix.creation import catalog
     return catalog()
+
+
+@router.get('/creation/registry')
+def creation_registry():
+    from api.services.remix import registry
+    return dict(agents=registry.listing('agent'),skills=registry.listing('skill'))
+
+
+def save_definition(kind,payload,expected_id=None):
+    from api.services.remix import registry
+    try:return registry.save(kind,payload,expected_id)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.post('/creation/agents')
+def create_agent(payload: AgentDefinition):return save_definition('agent',payload)
+
+
+@router.put('/creation/agents/{definition_id}')
+def update_agent(definition_id: str,payload: AgentDefinition):return save_definition('agent',payload,definition_id)
+
+
+@router.post('/creation/skills')
+def create_skill(payload: SkillDefinition):return save_definition('skill',payload)
+
+
+@router.put('/creation/skills/{definition_id}')
+def update_skill(definition_id: str,payload: SkillDefinition):return save_definition('skill',payload,definition_id)
+
+
+@router.get('/creation/definitions/{kind}/{definition_id}/versions')
+def definition_versions(kind: Literal['agent','skill'],definition_id: str):
+    from api.services.remix import registry
+    return registry.history(kind,definition_id)
 
 
 @router.get('/research/discovery')
@@ -241,8 +276,8 @@ async def upload_chunk(upload_id: str, request: Request, offset: int=Query(ge=0)
 
 
 @router.get('/jobs')
-def jobs(page: int=Query(1,ge=1),search: str=Query('',max_length=200),status: str=Query('',pattern=r'^(|queued|running|completed|failed|interrupted|cancelled)$')):
-    return store.listing(page,search,status)
+def jobs(page: int=Query(1,ge=1),search: str=Query('',max_length=200),status: str=Query('',pattern=r'^(|queued|running|completed|failed|interrupted|cancelled)$'),task_kind: str=Query('',pattern=r'^(|analysis|writing|legacy)$'),parent_job_id: str=Query('',pattern=r'^([a-f0-9]{32})?$')):
+    return store.listing(page,search,status,task_kind,parent_job_id)
 
 
 @router.post('/jobs')
@@ -251,6 +286,10 @@ def submit(payload: JobInput, request: Request):
         raise HTTPException(422,'请确认正文、转写、所选评论、创作需求和适用写作经验会发送给配置的模型服务；云端转写还会发送音频')
     if payload.source=='upload' and not payload.analyze_video:
         raise HTTPException(422,'上传视频需选择视频转写分析')
+    try:
+        existing=store.replay(payload,actor(request))
+        if existing:return existing
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
     config=providers.status()
     if not config['model_ready']:
         raise HTTPException(422,'分析模型未配置，请查看配置说明')
@@ -262,12 +301,24 @@ def submit(payload: JobInput, request: Request):
             raise ValueError('所选内容没有已下载的本机视频，请上传视频或选择仅正文分析')
         return store.submit(payload,actor(request),source)
     except ValueError as exc:
+        from api.services.remix.registry import SelectionError
+        if isinstance(exc,SelectionError):raise HTTPException(422,str(exc)) from exc
         raise HTTPException(409,str(exc)) from exc
 
 
 @router.get('/jobs/{job_id}')
 def get_job(job_id: str):
     return job_or_404(job_id)
+
+
+@router.get('/jobs/{job_id}/relations')
+def job_relations(job_id: str,page: int=Query(1,ge=1)):
+    from api.services.remix import task_contracts
+    job=job_or_404(job_id);parent=store.get(job.get('parent_job_id')) if job.get('parent_job_id') else None
+    dependency=job.get('source',{}).get('analysis_dependency')
+    return dict(parent=({k:parent.get(k) for k in ('id','title','status','task_kind')} if parent else None),
+        dependency=dependency,snapshot_matches_current=(task_contracts.result_hash(parent)==dependency['result_sha256'] if parent and dependency else None),
+        children=store.listing(page=page,parent_job_id=job_id))
 
 
 @router.post('/jobs/{job_id}/revalidate')
@@ -359,9 +410,11 @@ def export_report(job_id: str):
 @router.get('/jobs/{job_id}/video')
 def video(job_id: str, request: Request):
     job=job_or_404(job_id)
-    if not job['input']['analyze_video']:
+    owner=job.get('source',{}).get('media_owner_id') or job_id
+    if not job['input']['analyze_video'] and owner==job_id:
         raise HTTPException(404,'本任务没有视频')
-    folder=store.root()/'jobs'/job_id
+    identifier(owner)
+    folder=store.root()/'jobs'/owner
     path=next((p for p in folder.glob('video.*') if p.suffix in {'.mp4','.mov','.webm','.m4v'} and p.is_file() and not p.is_symlink()),None)
     if not path or not path.resolve().is_relative_to(folder.resolve()):
         raise HTTPException(404,'视频尚未准备完成')

@@ -51,6 +51,11 @@ def snapshot(source, payload, comments=(), saved_total=0):
 def build_evidence(source, transcript):
     from .reference_evidence import prepare
     from .source_archive import model_records, CONTEXT_CHARS
+    if source.get('task_kind')=='analysis':
+        # Writing defaults stay in the source snapshot for a later task, but do not
+        # affect analysis generation or its cache key.
+        brief=source.get('creative_brief',{})
+        source=dict(source,creative_brief={k:brief.get(k,'') for k in ('topic','supplemental')},knowledge=[],profile=None)
     source, upstream = prepare(source)
     dataset=model_records(source)
     complete=bool(source.get('execution')) or source.get('kind') in ('manual','report','research','analytics')
@@ -68,7 +73,7 @@ def build_evidence(source, transcript):
         evidence.append(dict(id=identifier or f'E{len(evidence)+1:04d}',kind=kind,text=text,**extra))
         limit -= len(text)
         return True
-    append('title', source['title'][:1000])
+    append('task_title' if source.get('task_kind')=='writing' else 'title', source['title'][:1000])
     metadata = {k:source.get(k) for k in ('kind','author','published_at','collected_at','metrics','video_available')}
     metadata['platform'] = {'xhs':'xhs','upload':'用户上传（原平台未知）','manual':'用户填写（原平台未知）','report':'分析报告（见来源快照）','research':'研究结果（见来源快照）','analytics':'数据分析（见筛选范围）'}.get(source['kind'],'未知')
     append('source_context', json.dumps(metadata,ensure_ascii=False))
@@ -79,8 +84,12 @@ def build_evidence(source, transcript):
     append('brief', json.dumps(brief,ensure_ascii=False))
     if source.get('execution'):
         append('creation_execution', json.dumps(source['execution'],ensure_ascii=False))
+    if source.get('task_kind') in ('analysis','writing'):
+        append('task_contract',json.dumps(dict(kind=source['task_kind'],version=1),ensure_ascii=False))
     if source.get('provenance'):
         append('source_provenance', json.dumps(source['provenance'],ensure_ascii=False))
+    if source.get('analysis_dependency'):
+        append('analysis_dependency',json.dumps(source['analysis_dependency'],ensure_ascii=False))
     if source.get('profile'):append('account_profile',json.dumps(source['profile'],ensure_ascii=False))
     for entry in [*upstream,*dataset]:
         append(entry['kind'],entry['text'],identifier=entry['id'],**{k:v for k,v in entry.items() if k not in ('id','kind','text')})
@@ -113,8 +122,8 @@ def build_evidence(source, transcript):
     topic_table=topics.build(evidence)
     if topic_table['sample_size']:
         append('comment_topics',json.dumps(dict(rule_version=topic_table['rule_version'],sample_size=topic_table['sample_size'],multi_label=True,groups=[dict(topic=g['topic'],count=g['count'],evidence_ids=g['evidence_ids'][:4]) for g in topic_table['groups']]),ensure_ascii=False))
-    speech_used = 0
-    for segment in transcript:
+    speech_used = sum(len(e['text']) for e in upstream if e.get('origin_kind')=='transcript')
+    for segment in ([] if upstream else transcript):
         if not complete and len(segment['text'])>limit-6000:
             break
         append('transcript',segment['text'],start=segment['start'],end=segment['end'])

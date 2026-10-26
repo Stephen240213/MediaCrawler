@@ -53,7 +53,7 @@ async def model(evidence):
     return candidate,{'total_tokens':123},'browser-fixture-model'
 async def asr(audio,duration,folder):
     return [{'start':0,'end':.8,'text':'浏览器测试转写片段'}]
-providers.analyze=model;providers.transcribe=asr
+providers.analyze=model;providers.write=model;providers.transcribe=asr
 from api.services.remix import research_provider
 from tests.test_remix_research import fake_model
 research_provider.analyze=fake_model
@@ -120,6 +120,14 @@ def test_remix_text_and_video_browser(remix_app,tmp_path):
         expect(page.get_by_role('heading',name='评论样本分析',exact=True)).to_be_visible()
         expect(page.get_by_role('heading',name='评论议题表',exact=True)).to_be_visible()
         expect(page.get_by_text('本次账号画像：旅行账号 · v1（冻结快照）',exact=True)).to_be_visible()
+        expect(page.get_by_role('heading',name='完整改写稿',exact=True)).to_have_count(0)
+        page.get_by_role('button',name='保存提纲到草稿',exact=True).click()
+        expect(page.get_by_role('status').filter(has_text='已保存到草稿预览')).to_be_visible()
+        page.get_by_role('button',name='用此报告创作',exact=True).click()
+        page.get_by_role('checkbox',name='我同意将所选来源',exact=False).check()
+        page.get_by_role('button',name='调用 Agent 生成草稿',exact=True).click()
+        expect(page.get_by_role('button',name='选用并编辑此稿',exact=True)).to_be_visible(timeout=15000)
+        page.get_by_role('button',name='打开完整报告',exact=True).click()
         expect(page.get_by_role('heading',name='完整改写稿',exact=True)).to_be_visible()
         page.get_by_text('本次分析范围与写作经验',exact=True).click()
         expect(page.get_by_text('语气偏好 · v1 · 账号经验',exact=True)).to_be_visible()
@@ -165,7 +173,8 @@ def test_remix_text_and_video_browser(remix_app,tmp_path):
         expect(page.get_by_label('复盘候选经验',exact=True)).to_contain_text('观察差异')
         page.get_by_role('button',name='核对样本后确认入库',exact=True).click()
         expect(page.get_by_role('status').filter(has_text='复盘经验已由你确认入库')).to_be_visible()
-        page.get_by_role('button',name='引用 E0001',exact=True).first.click()
+        cited=page.request.get(remix_app+f'/api/remix/jobs/{current}').json()['report']['summary_evidence_ids'][0]
+        page.get_by_role('button',name='引用 '+cited,exact=True).first.click()
         expect(page.get_by_role('complementary',name='引用原文')).to_contain_text('测试旅行笔记')
         # The original-link redirect must preserve the saved signing parameters.
         # Intercept the initial local navigation, before Chromium follows the
@@ -189,8 +198,6 @@ def test_remix_text_and_video_browser(remix_app,tmp_path):
         with page.expect_download() as download:
             page.get_by_role('button',name='导出 Markdown',exact=True).click()
         assert 'E0001' in Path(download.value.path()).read_text()
-        page.get_by_role('button',name='保存提纲到草稿',exact=True).click()
-        expect(page.get_by_role('status').filter(has_text='已保存到草稿预览')).to_be_visible()
         page.evaluate('window.scrollTo(0,0)')
         page.screenshot(path=str(evidence/'desktop.png'),full_page=True)
         page.get_by_role('button',name='新建分析',exact=True).click()
@@ -204,6 +211,11 @@ def test_remix_text_and_video_browser(remix_app,tmp_path):
         page.get_by_role('button',name='0:00',exact=False).click()
         expect(page.get_by_role('button',name='跳转视频',exact=False)).to_be_visible()
         page.get_by_role('button',name='跳转视频',exact=False).click()
+        page.get_by_role('button',name='用此报告创作',exact=True).click()
+        page.get_by_role('checkbox',name='我同意将所选来源',exact=False).check()
+        page.get_by_role('button',name='调用 Agent 生成草稿',exact=True).click()
+        expect(page.get_by_role('button',name='选用并编辑此稿',exact=True)).to_be_visible(timeout=15000)
+        page.get_by_role('button',name='打开完整报告',exact=True).click()
         page.get_by_label('成稿标题',exact=True).fill('视频字幕校对稿')
         page.get_by_role('button',name='保存成稿版本',exact=True).click()
         expect(page.get_by_role('status').filter(has_text='已保存新版本')).to_be_visible()

@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 
 class StrictModel(BaseModel):
@@ -24,6 +24,8 @@ class CreativeBrief(StrictModel):
 
 
 class JobInput(StrictModel):
+    task_kind: Literal['analysis', 'writing', 'legacy'] = 'legacy'
+    reuse_job_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$')
     project_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$')
     profile_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$')
     include_global_knowledge: bool = False
@@ -32,8 +34,10 @@ class JobInput(StrictModel):
     material: str = Field(default='', max_length=18000)
     reference_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$')
     analytics_filters: dict[str, str] = Field(default_factory=dict, max_length=10)
-    agent_id: Literal['content_writer', 'script_writer'] = 'content_writer'
-    skill_ids: list[Literal['answer', 'compare', 'story', 'curate']] = Field(default_factory=list, max_length=4)
+    agent_id: str = Field(default='content_writer', pattern=r'^[a-z][a-z0-9_-]{1,63}$')
+    agent_version: PositiveInt | None = None
+    skill_ids: list[str] = Field(default_factory=list, max_length=8)
+    skill_versions: dict[str,PositiveInt] = Field(default_factory=dict, max_length=8)
     content_id: str = Field(default='', max_length=200)
     upload_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$', max_length=32)
     title: str = Field(default='', max_length=200)
@@ -134,6 +138,38 @@ class CreationReport(AnalysisReport):
     sections: list[Section] = Field(default_factory=list, max_length=4)
     ideas: list[Idea] = Field(default_factory=list, max_length=5)
     rewrites: list[Rewrite] = Field(min_length=1, max_length=3)
+
+
+class AnalysisOnlyReport(AnalysisReport):
+    rewrites: list[Rewrite] = Field(default_factory=list, max_length=0)
+    recommended_framework: Literal['auto'] = 'auto'
+    framework_reason: str = Field(default='', max_length=0)
+
+
+class WritingReport(CreationReport):
+    sections: list[Section] = Field(default_factory=list, max_length=0)
+    ideas: list[Idea] = Field(default_factory=list, max_length=0)
+    comment_analysis: list[CommentFinding] = Field(default_factory=list, max_length=0)
+
+
+class AgentDefinition(StrictModel):
+    id: str = Field(pattern=r'^[a-z][a-z0-9_-]{1,63}$')
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default='', max_length=500)
+    instruction: str = Field(min_length=1, max_length=5000)
+    content_type: Literal['图文','视频'] = '图文'
+    enabled: bool = True
+    version: int = Field(default=0, ge=0)
+
+
+class SkillDefinition(StrictModel):
+    id: str = Field(pattern=r'^[a-z][a-z0-9_-]{1,63}$')
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default='', max_length=500)
+    instruction: str = Field(min_length=1, max_length=5000)
+    content_types: list[Literal['图文','视频']] = Field(default_factory=lambda:['图文','视频'], min_length=1, max_length=2)
+    enabled: bool = True
+    version: int = Field(default=0, ge=0)
 
 
 class ProfileInput(StrictModel):
