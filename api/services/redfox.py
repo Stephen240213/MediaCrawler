@@ -3,9 +3,11 @@ import asyncio
 import json
 import os
 from pathlib import Path
+from datetime import datetime, timezone
 import tomllib
 
 import httpx
+from .redfox_payload import check_result
 
 PLATFORMS = {'xhs': 'xiaohongshu', 'dy': 'douyin', 'twitter': 'twitter', 'youtube': 'youtube'}
 TOOLS = json.loads(Path(__file__).with_name('redfox_tools.json').read_text())
@@ -43,6 +45,9 @@ def validate_tool(platform, name, arguments):
         valid = isinstance(value, str) if expected == 'string' else type(value) in (int, float)
         if not valid:
             raise ValueError(f'参数 {field} 类型不正确')
+        choices = schema['properties'][field].get('enum')
+        if choices and value not in choices:
+            raise ValueError(f'参数 {field} 请从分类列表选择，例如：旅行度假')
     for field in schema['required']:
         if field not in arguments or arguments[field] == '':
             raise ValueError(f'请填写参数：{field}')
@@ -90,7 +95,7 @@ class RedFoxClient:
                     elif not line and data:
                         message = json.loads('\n'.join(data)); data = []
                         if message.get('id') == request_id:
-                            return self.result(message)
+                            return self.result(message, (self.headers['REDFOX_API_KEY'],))
                 raise ValueError('MCP 响应未完整结束；不会自动重试')
             chunks = []
             async for chunk in response.aiter_bytes():
@@ -101,10 +106,10 @@ class RedFoxClient:
             message = json.loads(b''.join(chunks))
             if message.get('id') != request_id:
                 raise ValueError('MCP 响应标识不匹配')
-            return self.result(message)
+            return self.result(message, (self.headers['REDFOX_API_KEY'],))
 
     @staticmethod
-    def result(message):
+    def result(message, secrets=()):
         if 'error' in message:
             raise ValueError('MCP 服务返回协议错误；请检查账户或参数，不会自动重试')
         result = message.get('result')
@@ -112,7 +117,7 @@ class RedFoxClient:
             raise ValueError('MCP 返回格式无效')
         if result.get('isError'):
             raise ValueError('RedFox 工具执行失败；请检查参数、权限或余额，不会自动重试')
-        return result
+        return check_result(result, secrets)
 
     async def call(self, name, arguments):
         try:
@@ -136,6 +141,7 @@ async def collect(request, output_root=None):
         raise ValueError('未找到 RedFox API Key，请配置采集电脑的 REDFOX_API_KEY 或 Codex MCP 持久配置')
     print(f'RedFox MCP · {request.mcp_tool} · 单次调用，不自动翻页或重试', flush=True)
     result = await RedFoxClient(request.platform.value, key).call(request.mcp_tool, request.mcp_arguments)
+    check_result(result, (key,))
     from api.routers.data import DATA_DIR
     root = Path(output_root) if output_root is not None else DATA_DIR
     folder = root / request.platform.value / 'redfox'
@@ -145,9 +151,17 @@ async def collect(request, output_root=None):
         raise ValueError('任务 ID 无效')
     path = folder / f'{task_id}.json'
     # Preserve remote task IDs and cursors for explicit follow-up calls.
-    payload = [dict(task_id=task_id, source='redfox_mcp', tool=request.mcp_tool, result=result)]
+    from .redfox_ingest import content_id, sync_export
+    args = request.mcp_arguments
+    parent = request.mcp_parent_content_id or next((args[k] for k in ('opus_id','tweet_id','video_id','work_id','work_link','work_url','video_url','url') if args.get(k)), '')
+    context = dict(keyword=args.get('keyword') or args.get('search_query') or '',
+                   parent_id=content_id(parent, request.platform.value), remote_task_id=args.get('task_id') or '')
+    payload = [dict(task_id=task_id, source='redfox_mcp', tool=request.mcp_tool, result=result,
+                    collected_at=datetime.now(timezone.utc).isoformat(), context=context)]
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2).replace(key, '[hidden]'), encoding='utf-8')
-    print(f'完成：已保存 MCP 原始结果到 {path.relative_to(root)}；异步任务请使用结果查询工具另行查询。', flush=True)
+    report = sync_export(json.loads(path.read_text())[0], request.platform.value)
+    print('MC_MCP_SYNC ' + json.dumps(report, ensure_ascii=False), flush=True)
+    print(f'完成：已保存 MCP 原始结果到 {path.relative_to(root)}；同步内容 {report["contents"]} 条、评论 {report["comments"]} 条。异步任务请另行查询。', flush=True)
 
 
 if __name__ == '__main__':
@@ -156,5 +170,6 @@ if __name__ == '__main__':
         asyncio.run(collect(CrawlerStartRequest.model_validate_json(os.environ['MEDIACRAWLER_MCP_REQUEST'])))
     except Exception as exc:
         # Never print raw transport bodies, URLs, arguments or credentials.
-        print(str(exc) if isinstance(exc, ValueError) and not isinstance(exc, json.JSONDecodeError) else 'RedFox 采集未完成，请核对服务状态和参数；不会自动重试', flush=True)
+        message = str(exc) if isinstance(exc, ValueError) and not isinstance(exc, json.JSONDecodeError) else 'RedFox 采集未完成，请核对服务状态和参数；不会自动重试'
+        print('MC_MCP_ERROR ' + json.dumps({'message':message}, ensure_ascii=False), flush=True)
         raise SystemExit(1)

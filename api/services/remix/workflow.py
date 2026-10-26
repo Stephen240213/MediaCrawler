@@ -42,11 +42,10 @@ def source_for(payload):
         row=db.execute("SELECT * FROM analytics_content WHERE platform='xhs' AND content_id=?",(payload.content_id,)).fetchone()
         if row is None:
             raise AnalysisError('没有找到这条小红书内容，请先在采集工作台采集')
-        note=dict(row);body=''
-        if db.execute("SELECT 1 FROM sqlite_master WHERE name='xhs_note' AND type='table'").fetchone():
-            native=db.execute('SELECT * FROM xhs_note WHERE note_id=? LIMIT 1',(payload.content_id,)).fetchone()
-            if native:
-                body=str(dict(native).get('desc') or '')
+        note=dict(row)
+        from api.services.redfox_sources import expressions
+        body_expr=expressions(db)['body']
+        body=str(db.execute("SELECT "+body_expr+" FROM analytics_content c WHERE c.platform='xhs' AND c.content_id=?",(payload.content_id,)).fetchone()[0] or '')
         saved_total,comments=context.saved_comments(db,payload.content_id) if payload.include_comments else (0,[])
     return context.snapshot(dict(kind='xhs',title=(note.get('title') or payload.content_id)[:1000],body=body[:providers.MAX_SOURCE_CHARS-1000],
                 truncated=len(body)>providers.MAX_SOURCE_CHARS-1000,original_body_chars=len(body),content_id=payload.content_id,author=note.get('author'),

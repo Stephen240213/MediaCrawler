@@ -46,6 +46,7 @@ export interface CrawlerConfig {
   collection_method?: 'browser' | 'redfox_mcp'
   mcp_tool?: string
   mcp_arguments?: Record<string, string | number>
+  mcp_parent_content_id?: string
   platform: string
   login_type: string
   crawler_type: string
@@ -77,6 +78,7 @@ export interface LogEntry {
 }
 
 export interface DataFile {
+  display_name?: string | null
   name: string
   path: string
   size: number

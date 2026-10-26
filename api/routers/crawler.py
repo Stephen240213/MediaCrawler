@@ -34,6 +34,21 @@ async def redfox_tools():
     return {'tools': TOOLS, 'configured': {p: bool(credential(p)) for p in PLATFORMS}}
 
 
+class RedFoxImport(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    parent_content_id: str = Field(default='', max_length=200, pattern=r'^[A-Za-z0-9_-]*$')
+
+
+@router.post('/redfox/import')
+async def import_redfox(payload: RedFoxImport):
+    from ..services.redfox_ingest import sync_file
+    from starlette.concurrency import run_in_threadpool
+    try:
+        return await run_in_threadpool(sync_file, payload.path, payload.parent_content_id)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(422, str(exc)[:500]) from exc
+
+
 @router.post("/start")
 async def start_crawler(request: CrawlerStartRequest, http_request: Request, idempotency_key: Optional[str] = Header(None, min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")):
     """Start crawler task"""

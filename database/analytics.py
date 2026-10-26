@@ -13,7 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 VERSION = 1
-PLATFORMS = ('xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu')
+PLATFORMS = ('xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu', 'twitter', 'youtube')
 # table, platform, content ID, publication column; comments share their parent's ID.
 SOURCES = {
     'xhs_note': ('xhs', 'note_id', 'time'),

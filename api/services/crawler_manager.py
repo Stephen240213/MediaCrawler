@@ -81,6 +81,28 @@ class CrawlerManager:
         """Create log entry"""
         raw_message=message
         message = redact(message, (self.current_config.cookies if self.current_config else '',))
+        if message.startswith('MC_MCP_ERROR ') and self.task:
+            try:
+                self.error_message = str(json.loads(message.removeprefix('MC_MCP_ERROR '))['message'])[:500]
+                self.task['ingestion'] = dict(status='error',contents=0,comments=0,warnings=[self.error_message])
+                workbench_store.save_document('task', self.task)
+                message = self.error_message
+                level = 'error'
+            except (ValueError, KeyError, TypeError):
+                pass
+        if message.startswith('MC_MCP_SYNC ') and self.task:
+            try:
+                report = json.loads(raw_message.removeprefix('MC_MCP_SYNC '))
+                self.task['ingestion'] = report
+                if self.task['platform'] == 'xhs':
+                    from .collection_batches import members
+                    batch = members(self.task['id'])
+                    if batch['total']:
+                        self.task.update(membership_version=1, dataset_counts={**batch['counts'], 'total':batch['total']})
+                workbench_store.save_document('task', self.task)
+                message = f'MCP 同步：内容 {report["contents"]} 条，评论 {report["comments"]} 条，拒绝 {report["rejected"]} 条。' + ' '.join(report.get('warnings', []))
+            except (ValueError, KeyError, TypeError):
+                message = 'MCP 同步状态无法解析，请在数据文件中重新同步'
         if message.startswith('MC_CONTENT ') and self.task:
             from . import collection_batches
             try:
@@ -406,7 +428,7 @@ class CrawlerManager:
                     self._finish_task('completed', exit_code)
                 else:
                     entry = self._create_log_entry(f"Crawler exited with code: {exit_code}", "warning")
-                    self.error_message = f'采集进程退出，退出码 {exit_code}'
+                    self.error_message = self.error_message or f'采集进程退出，退出码 {exit_code}'
                     self._finish_task('failed', exit_code)
                 await self._push_log(entry)
                 self.status = "idle" if exit_code == 0 else "error"

@@ -8,12 +8,20 @@
 
 结果保存为 `data/<平台>/redfox/<本机任务ID>.json`，可通过「数据文件 → 导出数据文件」预览和下载。JSON 保留远程 taskId 和翻页游标，供用户填写到结果查询或下一页调用中。异步评论、转写的“已完成”表示本次工具调用及保存完成，远程任务可能仍在处理。停止本机进程不会撤销已经提交的远程任务。
 
-当前保存原始 MCP 结果，暂不导入内容资料库、内容研究、SQLite 或媒体下载。浏览器采集选项不用于 MCP 模式。任务记录会显示 RedFox 来源及具体工具。
+有效的内容与评论自动同步到采集 SQLite 数据库，按平台与作品/评论 ID 去重；正文与匿名发布者标识存入独立 `redfox_sources` 表，原始导出保留。缺失互动值不填零，`2w+` 等约数不伪装成精确指标，稀疏返回不会擦除已有字段。每条导出有同步账本，重复同步不会重复生成互动快照；任务批次成员可在重放时恢复。
+
+小红书内容可由任务记录的「查看资料」「内容分析」衔接到资料库、单条 AI 分析以及批次/主题/发布者研究；正文与评论均进入证据上下文。其他平台当前接入数据分析，AI 内容研究仍限小红书。只有属于此次 MCP 任务的已保存内容进入该批次，不按关键词猜测归属。
+
+新提交的评论任务会保留远程任务 ID 与所属笔记的关联；结果查询可自动找回归属。历史任务没有关联时，可在 MCP 表单的「关联内容 ID」补充。缺少归属的评论会明确拒绝同步；父内容尚未采集时，评论可先保存，采集父内容后才能进入关联统计。转写、账号工具及异步提交回执只保留原文件，不作为内容条数。
+
+旧 JSON 可在「数据文件 → 导出数据文件 → MCP 结果」点击「同步到分析」。此操作只处理本机文件，不请求 RedFox 或调用分析模型。无效结构显示拒绝与警告，不生成虚构内容。MCP 的 `isError=false` 仅代表协议层状态；仍检查 `structuredContent` 和文本 JSON 内部业务码/错误。失败响应不导入统计，旧版误标成功的任务会在本地同步时改为失败；原文件继续保留。
+
+黑马榜 `category` 使用官方列出的 25 个中文分类下拉选项（旅游相关为「旅行度假」），并在后端校验。服务返回分类错误时显示具体业务码与说明，不自动替换分类或重试。参数与字段映射参考 [RedFox 黑马榜接口规范](https://github.com/redfox-data/redfox-community/blob/main/skills/xiaohongshu-darkhorse/references/api-spec.md)、[小红书作品搜索](https://redfox.hk/apis/xiaohongshu/384C6W6B)、[抖音作品搜索](https://redfox.hk/apis/douyin/774OBKK0) 以及官方 X / YouTube 评论格式说明。未知结构保留文件并报告，不能以本地模拟测试代替真实服务数据结构确认。
 
 仅针对 MCP 的本机验证命令：
 
 ```sh
-uv run --frozen pytest tests/test_redfox.py -q
+uv run --frozen pytest tests/test_redfox.py tests/test_redfox_ingest.py tests/test_analytics.py tests/test_content_remix.py tests/test_remix_research.py -q
 npm --prefix webui run build
 uv run --frozen pytest tests/test_redfox_browser.py -q
 ```

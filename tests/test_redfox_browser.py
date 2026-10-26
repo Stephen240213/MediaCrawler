@@ -25,6 +25,11 @@ def test_mcp_platform_tools_parameters_and_single_submission(remix_app):
         expect(page.get_by_text('已找到本机持久化 RedFox 凭据。',exact=True)).to_be_visible()
         tool=page.get_by_label('MCP 工具',exact=True)
         assert tool.locator('option').count()==15
+        tool.select_option('xiaohongshu_get_dark_horse_notes')
+        category=page.get_by_role('combobox',name='分类',exact=True)
+        assert category.locator('option').count()==26
+        category.select_option('旅行度假')
+        expect(category).to_have_value('旅行度假')
         page.get_by_label('目标平台',exact=True).select_option('youtube')
         assert tool.locator('option').count()==4
         tool.select_option('youtube_get_comments')
@@ -47,4 +52,32 @@ def test_mcp_platform_tools_parameters_and_single_submission(remix_app):
         page.screenshot(path=str(proof/'mobile.png'),full_page=True)
         assert page.evaluate('document.documentElement.scrollWidth<=window.innerWidth')
         assert not errors,errors
+        browser.close()
+
+
+def test_mcp_export_sync_and_task_analysis_entry(remix_app):
+    with sync_playwright() as p:
+        browser=p.chromium.launch(executable_path=os.environ.get('MEDIACRAWLER_TEST_BROWSER') or None,headless=True)
+        page=browser.new_page(viewport={'width':1100,'height':900})
+        page.add_init_script("localStorage.setItem('mediacrawler_license_accepted','true');localStorage.setItem('mediacrawler_env_checked','true')")
+        calls=[]
+        path='xhs/redfox/'+('b'*32)+'.json'
+        page.route('**/api/data/files',lambda route:route.fulfill(json={'files':[{'name':'b'*32+'.json','path':path,'type':'json','size':1000,'modified_at':1793001600,'record_count':1,'display_name':'RedFox MCP · 测试旅行结果'}]}))
+        def sync(route):
+            calls.append(route.request.post_data_json)
+            route.fulfill(json={'contents':1,'comments':1,'rejected':0,'replayed':False,'warnings':[]})
+        page.route('**/api/crawler/redfox/import',sync)
+        page.route('**/api/workbench/tasks',lambda route:route.fulfill(json={'tasks':[dict(id='b'*32,platform='xhs',crawler_type='search',collection_method='redfox_mcp',mcp_tool='xiaohongshu_search_articles',target='MCP测试批次',started_at='2026-10-26T08:00:00Z',finished_at='2026-10-26T08:01:00Z',outcome='completed',exit_code=0,membership_version=1,ingestion={'status':'synced','contents':1,'comments':1})]}))
+        page.goto(remix_app)
+        page.get_by_role('button',name='数据文件',exact=True).click()
+        page.get_by_role('button',name='导出数据文件',exact=True).click()
+        with page.expect_response('**/api/crawler/redfox/import'):
+            page.get_by_role('button',name='同步到分析',exact=True).click()
+        expect(page.get_by_role('status').filter(has_text='同步完成：内容 1 条')).to_be_visible()
+        assert calls==[{'path':path}]
+        page.get_by_role('button',name='任务记录',exact=True).click()
+        row=page.get_by_role('row').filter(has_text='MCP测试批次')
+        expect(row.get_by_role('button',name='查看资料',exact=True)).to_be_visible()
+        row.get_by_role('button',name='内容分析',exact=True).click()
+        expect(page.get_by_label('资料纳入方式',exact=True)).to_have_value('task')
         browser.close()

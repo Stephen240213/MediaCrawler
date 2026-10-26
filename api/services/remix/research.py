@@ -71,11 +71,10 @@ def save(payload,actor,space_id=None):
         collection_batches.selected_ids(data['task_id'])
     if data['kind']=='account':
         with analytics.read_db() as (source_db,_):
-            cols={row[1] for row in source_db.execute('PRAGMA table_info(xhs_note)')}
+            from api.services.redfox_sources import expressions
+            source=expressions(source_db)
             source_db.create_function('research_identity',2,_account_id,deterministic=True)
-            creator='n.creator_hash' if 'creator_hash' in cols else 'NULL'
-            user='n.user_id' if 'user_id' in cols else 'NULL'
-            valid='note_id' in cols and source_db.execute("SELECT 1 FROM xhs_note n JOIN analytics_content c ON c.platform='xhs' AND c.content_id=n.note_id WHERE research_identity("+creator+','+user+')=? LIMIT 1',(data['account_id'],)).fetchone()
+            valid=source_db.execute("SELECT 1 FROM analytics_content c WHERE c.platform='xhs' AND research_identity("+source['creator']+','+source['user']+')=? LIMIT 1',(data['account_id'],)).fetchone()
         if not valid: raise ValueError('发布者缺少可核验的稳定ID，不能创建账号研究')
     with store.connect() as db:
         db.execute('BEGIN IMMEDIATE')
@@ -103,11 +102,11 @@ def _account_id(creator,user):
 
 
 def _catalog(db,space=None,search=''):
-    cols={r[1] for r in db.execute('PRAGMA table_info(xhs_note)')}
-    wanted=[k for k in ('note_id','desc','creator_hash','user_id') if k in cols]
     has_keywords=bool(db.execute("SELECT 1 FROM sqlite_master WHERE name='source_keyword_memberships'").fetchone())
     where=["c.platform='xhs'"];args=[]
-    body_expr="coalesce((SELECT n.desc FROM xhs_note n WHERE n.note_id=c.content_id LIMIT 1),'')" if {'note_id','desc'}<=cols else "''"
+    from api.services.redfox_sources import expressions
+    source=expressions(db)
+    body_expr=source['body']
     text_expr="coalesce(c.title,'')||char(10)||"+body_expr
     if search:
         where.append("(instr(coalesce(c.title,''),?)>0 OR instr(coalesce(c.author,''),?)>0 OR c.content_id=?)");args.extend([search]*3)
@@ -116,12 +115,8 @@ def _catalog(db,space=None,search=''):
             where.append('c.content_id IN (SELECT value FROM json_each(?))');args.append(encode(space['include_ids']))
         if space['kind']=='single': where.append('c.content_id=?');args.append(space['content_id'])
         if space['kind']=='account':
-            if 'note_id' in cols:
-                creator='n.creator_hash' if 'creator_hash' in cols else 'NULL'
-                user='n.user_id' if 'user_id' in cols else 'NULL'
-                db.create_function('research_identity',2,_account_id,deterministic=True)
-                where.append('EXISTS(SELECT 1 FROM xhs_note n WHERE n.note_id=c.content_id AND research_identity('+creator+','+user+')=?)');args.append(space['account_id'])
-            else: where.append('0')
+            db.create_function('research_identity',2,_account_id,deterministic=True)
+            where.append('research_identity('+source['creator']+','+source['user']+')=?');args.append(space['account_id'])
         for key,operator in (('start','>='),('end','<=')):
             if space[key]: where.append("date(c.published_at,'+8 hours')"+operator+'?');args.append(space[key])
         if space['exclude_ids']:
@@ -144,28 +139,26 @@ def _catalog(db,space=None,search=''):
             where.append('('+rule+')');args.extend(rule_args)
         elif space['kind']=='topic' and space['include_ids']:
             where.append('c.content_id IN ('+','.join('?' for _ in space['include_ids'])+')');args.extend(space['include_ids'])
-    rows=db.execute('SELECT c.* FROM analytics_content c WHERE '+' AND '.join(where)+' ORDER BY c.content_id LIMIT 5001',args).fetchall()
+    rows=db.execute('SELECT c.*,'+body_expr+' AS source_body,'+source['creator']+' AS source_creator,'+source['user']+' AS source_user FROM analytics_content c WHERE '+' AND '.join(where)+' ORDER BY c.content_id LIMIT 5001',args).fetchall()
     if space and len(rows)>5000: raise ValueError('候选超过5000条，请通过来源关键词、包含词或时间缩小研究范围；未扫描全部正文，也未调用模型')
-    rows=rows[:5000];native={};memberships={}
+    rows=rows[:5000];memberships={}
     ids=[r['content_id'] for r in rows]
     for offset in range(0,len(ids),400):
         chunk=ids[offset:offset+400];marks=','.join('?' for _ in chunk)
-        if 'note_id' in wanted:
-            native.update({str(r['note_id']):dict(r) for r in db.execute('SELECT '+','.join('"'+k+'"' for k in wanted)+' FROM xhs_note WHERE note_id IN ('+marks+') ORDER BY rowid',chunk)})
         if has_keywords:
             for row in db.execute("SELECT content_id,keyword FROM source_keyword_memberships WHERE platform='xhs' AND content_id IN ("+marks+')',chunk):
                 memberships.setdefault(row['content_id'],set()).add(row['keyword'])
     result=[]
     for row in rows:
-        item=dict(row);raw=native.get(item['content_id'],{})
-        user=str(raw.get('user_id') or '').strip()
-        creator=str(raw.get('creator_hash') or '').strip().lower()
+        item=dict(row)
+        user=str(item.pop('source_user') or '').strip()
+        creator=str(item.pop('source_creator') or '').strip().lower()
         # analytics.author_id can be a nickname hash: never use it as identity.
         if re.fullmatch(r'(?:[a-f0-9]{16}|[a-f0-9]{64})',creator):
             item.update(account_id=digest(['xhs','creator_hash',creator]),account_basis='匿名发布者稳定标识')
         else:
             item.update(account_id=digest(['xhs',user]) if user.lower() not in ('','none','null','undefined','0') else '',account_basis='历史资料发布者ID' if user else '未归属')
-        body=str(raw.get('desc') or '')
+        body=str(item.pop('source_body') or '')
         item.update(body=body[:12000],full_body=body,body_chars=len(body),body_available=bool(body),
                     keywords=sorted(memberships.get(item['content_id'],set())|({item['keyword']} if item.get('keyword') else set())))
         result.append(item)

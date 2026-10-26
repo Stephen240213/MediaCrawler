@@ -11,7 +11,7 @@ type Overview = {ready: boolean; summary: Record<string, number | string | null>
 type ImportResult = {total: number; inserted: number; updated: number; duplicates: number; rejected: number; warnings: number; dry_run: boolean; errors: {row: number; error?: string; warning?: string}[]}
 type MetricHistory = {comparable: boolean; delta: number | null; rate: number | null; first: {collected_at: string; value: number} | null; last: {collected_at: string; value: number} | null}
 type History = {snapshot_count: number; metrics: Record<string, MetricHistory>; items: {collected_at: string; likes: number | null; favorites: number | null; comments: number | null; shares: number | null}[]}
-const platforms: Record<string, string> = {xhs: '小红书', dy: '抖音', ks: '快手', bili: '哔哩哔哩', wb: '微博', tieba: '贴吧', zhihu: '知乎'}
+const platforms: Record<string, string> = {xhs: '小红书', dy: '抖音', ks: '快手', bili: '哔哩哔哩', wb: '微博', tieba: '贴吧', zhihu: '知乎',twitter:'X / Twitter',youtube:'YouTube'}
 const metrics: Record<string, string> = {likes: '点赞', favorites: '收藏', comments: '评论', shares: '分享'}
 const number = (v: unknown) => typeof v === 'number' ? v.toLocaleString('zh-CN') : '—'
 const date = (v: unknown) => typeof v === 'string' && v ? new Date(v).toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai', hour12: false}) : '未提供'

@@ -14,6 +14,13 @@ from api.services import redfox, workbench_store
 from api.services.crawler_manager import CrawlerManager
 
 
+@pytest.fixture(autouse=True)
+def local_databases(tmp_path,monkeypatch):
+    from api.services import analytics
+    monkeypatch.setitem(analytics.sqlite_db_config,'db_path',str(tmp_path/'collection.sqlite3'))
+    monkeypatch.setattr(workbench_store,'DB_PATH',tmp_path/'workbench.sqlite3')
+
+
 def request(**overrides):
     return CrawlerStartRequest(platform='xhs', collection_method='redfox_mcp',
         mcp_tool='xiaohongshu_search_articles', mcp_arguments={'keyword':'fixture'}, save_option='json', **overrides)
@@ -138,6 +145,10 @@ import asyncio, os
 from unittest.mock import AsyncMock
 from api.schemas.crawler import CrawlerStartRequest
 from api.services import redfox
+from api.services import analytics,workbench_store
+from pathlib import Path
+analytics.sqlite_db_config['db_path']={str(tmp_path/'collection.sqlite3')!r}
+workbench_store.DB_PATH=Path({str(tmp_path/'workbench.sqlite3')!r})
 redfox.RedFoxClient.call = AsyncMock(return_value={{'content':[{{'type':'text','text':'fixture result'}}]}})
 asyncio.run(redfox.collect(CrawlerStartRequest.model_validate_json(os.environ['MEDIACRAWLER_MCP_REQUEST']), {str(tmp_path)!r}))
 '''

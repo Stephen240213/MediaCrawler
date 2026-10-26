@@ -69,6 +69,7 @@ class CrawlerStartRequest(BaseModel):
     collection_method: Literal['browser', 'redfox_mcp'] = 'browser'
     mcp_tool: str = Field(default='', max_length=100)
     mcp_arguments: dict = Field(default_factory=dict)
+    mcp_parent_content_id: str = Field(default='', max_length=200, pattern=r'^[A-Za-z0-9_-]*$')
     login_type: LoginTypeEnum = LoginTypeEnum.QRCODE
     crawler_type: CrawlerTypeEnum = CrawlerTypeEnum.SEARCH
     keywords: str = ""  # Keywords for search mode

@@ -43,6 +43,14 @@ def get_file_info(file_path: Path) -> dict:
                 data = json.load(f)
                 if isinstance(data, list):
                     record_count = len(data)
+                    if file_path.parent.name == 'redfox' and data and isinstance(data[0],dict):
+                        from api.services.redfox_payload import check_result
+                        display_name = 'RedFox MCP · ' + str(data[0].get('tool') or '原始结果')[:100]
+                        try:
+                            check_result(data[0].get('result',{}))
+                        except ValueError:
+                            display_name = 'MCP 失败响应 · ' + str(data[0].get('tool') or '')[:100]
+                            record_count = 0
                 elif isinstance(data,dict) and file_path.parent.name=='search_metadata':
                     display_name=str(data.get('keyword') or '网页搜索')[:120]+' · 检索记录'
                     if data.get('membership_version')==1 and isinstance(data.get('members'),list):record_count=len(data['members'])
