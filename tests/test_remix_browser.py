@@ -32,9 +32,9 @@ analytics.sqlite_db_config['db_path']=str(root/'collection.db')
 workbench.DATA_ROOT=root/'media';data.DATA_DIR=root/'media'
 schema.migrate(analytics.db_path())
 with sqlite3.connect(analytics.db_path()) as db:
-    schema.save(db,schema.normalize(dict(platform='xhs',content_id='fixture-note',title='测试旅行笔记',author='测试作者',url='https://www.xiaohongshu.com/explore/fixture-note?xsec_token=fixture-browser-token&xsec_source=pc_search')))
-    db.execute('CREATE TABLE xhs_note(note_id TEXT,desc TEXT)')
-    db.execute('INSERT INTO xhs_note VALUES (?,?)',('fixture-note','提出路线问题，然后展示安排方法。'))
+    schema.save(db,schema.normalize(dict(platform='xhs',content_id='fixture-note',title='测试旅行笔记',author='测试作者',keyword='旅行',url='https://www.xiaohongshu.com/explore/fixture-note?xsec_token=fixture-browser-token&xsec_source=pc_search')))
+    db.execute('CREATE TABLE xhs_note(note_id TEXT,desc TEXT,creator_hash TEXT)')
+    db.execute('INSERT INTO xhs_note VALUES (?,?,?)',('fixture-note','提出路线问题，然后展示安排方法。','0123456789abcdef'))
     schema.save(db,schema.normalize(dict(platform='xhs',content_id='fixture-note',comment_id='comment-1',body='路线怎么安排？'),kind='comment'),kind='comment')
 async def model(evidence):
     await asyncio.sleep(.3)
@@ -42,6 +42,9 @@ async def model(evidence):
 async def asr(audio,duration,folder):
     return [{'start':0,'end':.8,'text':'浏览器测试转写片段'}]
 providers.analyze=model;providers.transcribe=asr
+from api.services.remix import research_provider
+from tests.test_remix_research import fake_model
+research_provider.analyze=fake_model
 import uvicorn
 uvicorn.run(app,host='127.0.0.1',port=port,log_level='warning')
 '''

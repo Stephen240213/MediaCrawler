@@ -13,7 +13,7 @@ import httpx
 from .schemas import AnalysisReport
 from . import moss
 
-PROMPT_VERSION = 'remix-phase1-v3-profiles-topics'
+PROMPT_VERSION = 'remix-phase1-v4-project-research'
 MAX_SECONDS = 15*60
 MAX_SOURCE_CHARS = 30000
 MAX_SEGMENTS = 600
@@ -249,6 +249,7 @@ account_profile 是用户确认的账号定位与风格，不是素材事实或�
 四类结构：需求解答=问题→直接回答→证据细节→使用条件→行动建议；决策对比=选择困境→比较维度→已知优缺点→适合谁→结论；真实经历=真实场景→问题→已有过程→已有结果→经验；信息筛选=核心条件→亮点→限制→费用门槛→下一步。缺少第一手经历不得编造亲历，真实经历框架可写来源记录的经历或明确的待填写结构。
 生成两篇不同角度的 rewrites（每篇正文建议400–800字，素材不足则更短，不能凑字编造），每篇含三个不同角度的 title_options 及区别理由、完整 body、cover_text、visuals 拍摄或配图建议、tags、fact_checks 待核实项、change_notes 修改说明、来源 evidence_ids。视频模式额外给 hook 开头口播和 script 分段脚本，图文可留空。正文直接可编辑使用，未知必要事实省略或明确留作待补充，不能伪装已核实。视觉建议属于待拍摄方案，不能冒充现有画面。保留 ideas 作为差异化选题和提纲。
 limitations 最多三条，只列影响判断的具体缺口及补充办法，避免重复免责声明和交易清单式跑题；已有信息不能列为缺失。相同意思只写一次。'''
+    system+='\nproject_research 是用户明确选用的项目研究快照，包含候选解释、来源声明及原文摘录；不是已验证事实、目标账号偏好或亲历。保留 revision_id 与来源口径，不能把不同房源/案例的价格或经历移植到当前素材，不因研究综合而省略核实。'
     payload={'model':c['model'],'temperature':0.2,'max_tokens':10000,'response_format':{'type':'json_object'},
              'messages':[{'role':'system','content':system+'\n'+json.dumps(AnalysisReport.model_json_schema(),ensure_ascii=False)},
                          {'role':'user','content':json.dumps({'evidence':evidence},ensure_ascii=False)}]}

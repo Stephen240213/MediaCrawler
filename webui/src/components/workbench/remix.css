@@ -49,3 +49,10 @@
 .remix-cue {border-bottom:1px solid #e9e2f3;padding:12px 0;display:grid;gap:12px}
 .remix-production-preview {min-width:0}
 @media(max-width:400px){.remix-artwork-grid{grid-template-columns:minmax(0,1fr)}}
+.research-nav { margin-bottom: 20px; }
+.research-nav h2 { font-size:18px; margin:0 0 16px; }
+.research-nav .wb-button[aria-pressed=true] { border-color:#b899ee; background:#f6f1ff; color:#6f3dcc; }
+.research-table-scroll { overflow-x: auto; margin: 16px 0; }
+.research-table-scroll table { width: 100%; border-collapse: collapse; text-align: left; }
+.research-table-scroll th, .research-table-scroll td { padding: 10px; border-bottom: 1px solid var(--wb-border, #e7e3ef); vertical-align: top; }
+.research-quote { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow-y: auto; }

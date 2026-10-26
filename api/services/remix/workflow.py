@@ -13,7 +13,7 @@ from langsmith import tracing_context
 from api.services import analytics
 from api.services.lease import Lease
 from media_downloader.paths import build_media_dir
-from . import store, providers, context, topics
+from . import store, providers, context, topics, research
 from .providers import AnalysisError
 
 
@@ -224,14 +224,34 @@ class Manager:
         self.users=1
         self.lease=Lease(store.root()/'executor.lock').acquire()
         store.recover()
+        research.recover()
         self.loop=asyncio.create_task(self.consume())
 
     async def consume(self):
         try:
             while True:
                 with store.connect() as db:
-                    row=db.execute("SELECT id FROM jobs WHERE status='queued' ORDER BY rowid LIMIT 1").fetchone()
-                if not row:
+                    row=db.execute("""SELECT id,'job' kind,json_extract(body,'$.created_at') created FROM jobs WHERE status='queued'
+                        UNION ALL SELECT id,'research' kind,json_extract(body,'$.created_at') created FROM research_runs WHERE status='queued'
+                        ORDER BY created,id LIMIT 1""").fetchone()
+                if not row or row['kind']=='research':
+                    with store.connect() as db:
+                        research_row=db.execute("SELECT id FROM research_runs WHERE id=? AND status='queued'",(row['id'],)).fetchone() if row else None
+                    if research_row:
+                        self.active_id=research_row['id']
+                        self.active=asyncio.create_task(research.execute(self.active_id))
+                        try:
+                            await self.active
+                        except asyncio.CancelledError:
+                            current=research.run_get(self.active_id)
+                            if current['status']!='cancelled':
+                                research.update_run(self.active_id,status='interrupted',error='服务停止，已完成缓存保留。请核对调用记录后手动建立新批次。')
+                            if asyncio.current_task().cancelling(): raise
+                        except Exception as exc:
+                            research.update_run(self.active_id,status='failed',error=str(exc)[:500] if isinstance(exc,AnalysisError) else '研究批次执行失败，已完成缓存保留')
+                        finally:
+                            self.active=None;self.active_id=None
+                        continue
                     await asyncio.sleep(.5);continue
                 job_id=row['id'];self.active_id=job_id
                 store.update(job_id,status='running',error=None)
@@ -278,6 +298,13 @@ class Manager:
             raise AnalysisError('只能取消排队或运行中的任务')
         store.update(job_id,status='cancelled',error='用户取消，可手动从检查点重试。')
         if self.active_id==job_id and self.active:
+            self.active.get_loop().call_soon_threadsafe(self.active.cancel)
+
+    async def cancel_research(self,run_id):
+        run=research.run_get(run_id)
+        if not run or run['status'] not in store.ACTIVE: raise AnalysisError('只能取消排队或执行中的研究批次')
+        research.update_run(run_id,status='cancelled',error='用户取消，已完成缓存保留；进行中的调用可能已计费。')
+        if self.active_id==run_id and self.active:
             self.active.get_loop().call_soon_threadsafe(self.active.cancel)
 
 

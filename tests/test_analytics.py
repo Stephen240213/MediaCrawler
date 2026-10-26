@@ -18,6 +18,9 @@ from database import db_session
 
 @pytest.fixture
 def database(tmp_path, monkeypatch):
+    from api.services import workbench_store
+    # TestClient starts the shared executor: isolate its DB as well as analytics.
+    monkeypatch.setattr(workbench_store,'DB_PATH',tmp_path/'workbench.sqlite3')
     path = tmp_path / 'collection.db'
     monkeypatch.setitem(service.sqlite_db_config, 'db_path', str(path))
     yield path

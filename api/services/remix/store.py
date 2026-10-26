@@ -47,6 +47,14 @@ def connect():
         db.execute('CREATE TABLE IF NOT EXISTS project_links(project_id TEXT,kind TEXT,resource_id TEXT,created_at TEXT,PRIMARY KEY(project_id,kind,resource_id))')
         db.execute('CREATE INDEX IF NOT EXISTS project_resource ON project_links(kind,resource_id)')
         db.execute('CREATE TABLE IF NOT EXISTS editor_snapshots(actor TEXT,kind TEXT,resource_id TEXT,revision INTEGER,body TEXT NOT NULL,updated_at TEXT,PRIMARY KEY(actor,kind,resource_id))')
+        db.execute('CREATE TABLE IF NOT EXISTS research_spaces(id TEXT PRIMARY KEY,body TEXT NOT NULL)')
+        db.execute('CREATE TABLE IF NOT EXISTS research_runs(id TEXT PRIMARY KEY,space_id TEXT,actor TEXT,request_key TEXT,fingerprint TEXT,status TEXT,body TEXT NOT NULL,UNIQUE(actor,request_key))')
+        db.execute('CREATE INDEX IF NOT EXISTS research_queue ON research_runs(status)')
+        db.execute('CREATE TABLE IF NOT EXISTS research_run_inputs(id TEXT PRIMARY KEY,body TEXT NOT NULL)')
+        db.execute('CREATE TABLE IF NOT EXISTS research_revisions(id TEXT PRIMARY KEY,space_id TEXT,body TEXT NOT NULL)')
+        db.execute('CREATE INDEX IF NOT EXISTS research_history ON research_revisions(space_id)')
+        db.execute('CREATE TABLE IF NOT EXISTS research_source_versions(id TEXT PRIMARY KEY,body TEXT NOT NULL)')
+        db.execute('CREATE TABLE IF NOT EXISTS research_asset_tags(id TEXT PRIMARY KEY,version INTEGER,body TEXT NOT NULL)')
         with db:
             yield db
     finally:
@@ -91,7 +99,7 @@ def submit(payload, actor, source):
             if row['fingerprint'] != digest:
                 raise ValueError('重复请求键对应的分析参数不同')
             return json.loads(row['body'])
-        if db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0] >= 5:
+        if db.execute("SELECT (SELECT count(*) FROM jobs WHERE status IN ('queued','running'))+(SELECT count(*) FROM research_runs WHERE status IN ('queued','running'))").fetchone()[0] >= 5:
             raise ValueError('分析队列已满（最多 5 个），请等待或取消任务')
         job = dict(id=uuid4().hex, actor=actor, status='queued', stage='queued', created_at=now(),updated_at=now(),
                    input=data, title=source['title'], source=source, error=None, report=None, attempts=1)
@@ -112,7 +120,7 @@ def requeue(job_id):
         job=json.loads(row[0])
         if job['status'] not in ('failed','cancelled','interrupted'):
             raise ValueError('只能重试失败、取消或已中断的任务')
-        if db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0] >= 5:
+        if db.execute("SELECT (SELECT count(*) FROM jobs WHERE status IN ('queued','running'))+(SELECT count(*) FROM research_runs WHERE status IN ('queued','running'))").fetchone()[0] >= 5:
             raise ValueError('分析队列已满')
         job.update(status='queued',error=None,updated_at=now(),attempts=job['attempts']+1)
         db.execute('UPDATE jobs SET status=?,body=? WHERE id=?',('queued',json.dumps(job,ensure_ascii=False),job_id))

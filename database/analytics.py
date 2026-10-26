@@ -145,6 +145,17 @@ SCHEMA = [
     'CREATE INDEX IF NOT EXISTS analytics_keyword ON analytics_content(keyword)',
     'CREATE INDEX IF NOT EXISTS analytics_author ON analytics_content(platform,author_id)',
     'CREATE INDEX IF NOT EXISTS analytics_comment_parent ON analytics_comment(platform,content_id,published_at)',
+    '''CREATE TABLE IF NOT EXISTS source_keyword_memberships (
+    platform TEXT NOT NULL, content_id TEXT NOT NULL, keyword TEXT NOT NULL,
+    first_seen TEXT, last_seen TEXT, PRIMARY KEY(platform,content_id,keyword))''',
+    '''CREATE TRIGGER IF NOT EXISTS analytics_keyword_insert AFTER INSERT ON analytics_content
+    WHEN length(trim(coalesce(NEW.keyword,'')))>0 BEGIN
+    INSERT INTO source_keyword_memberships VALUES(NEW.platform,NEW.content_id,trim(NEW.keyword),NEW.collected_at,NEW.collected_at)
+    ON CONFLICT(platform,content_id,keyword) DO UPDATE SET last_seen=max(coalesce(last_seen,''),coalesce(excluded.last_seen,'')); END''',
+    '''CREATE TRIGGER IF NOT EXISTS analytics_keyword_update AFTER UPDATE ON analytics_content
+    WHEN length(trim(coalesce(NEW.keyword,'')))>0 BEGIN
+    INSERT INTO source_keyword_memberships VALUES(NEW.platform,NEW.content_id,trim(NEW.keyword),NEW.collected_at,NEW.collected_at)
+    ON CONFLICT(platform,content_id,keyword) DO UPDATE SET last_seen=max(coalesce(last_seen,''),coalesce(excluded.last_seen,'')); END''',
 ]
 
 
@@ -162,6 +173,11 @@ def save(db, item, kind='content'):
     table = 'analytics_content' if kind == 'content' else 'analytics_comment'
     if kind == 'content':
         snapshot(db, item)
+        if item.get('keyword') and item['keyword'].strip():
+            db.execute('''INSERT INTO source_keyword_memberships VALUES(?,?,?,?,?)
+                ON CONFLICT(platform,content_id,keyword) DO UPDATE SET
+                last_seen=max(coalesce(last_seen,''),coalesce(excluded.last_seen,''))''',
+                (item['platform'],item['content_id'],item['keyword'].strip(),item.get('collected_at'),item.get('collected_at')))
     db.execute(upsert_sql(table, columns), [item[c] for c in columns])
 
 
@@ -228,6 +244,10 @@ def migrate(path):
         db.execute('BEGIN IMMEDIATE')
         for sql in SCHEMA:
             db.execute(sql)
+        # Only the surviving scalar value can be recovered for historical rows.
+        db.execute('''INSERT OR IGNORE INTO source_keyword_memberships
+            SELECT platform,content_id,trim(keyword),collected_at,collected_at FROM analytics_content
+            WHERE length(trim(coalesce(keyword,'')))>0''')
         first = db.execute('SELECT version FROM analytics_meta').fetchone() is None
         for kind, sources in (('content', SOURCES), ('comment', COMMENTS)):
             for table, spec in sources.items():

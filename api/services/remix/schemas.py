@@ -27,6 +27,7 @@ class JobInput(StrictModel):
     project_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$')
     profile_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$')
     include_global_knowledge: bool = False
+    include_project_research: bool = False
     source: Literal['xhs', 'upload']
     content_id: str = Field(default='', max_length=200)
     upload_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$', max_length=32)
@@ -202,7 +203,7 @@ class ProjectInput(StrictModel):
 
 
 class ProjectLink(StrictModel):
-    kind: Literal['source','job','draft','asset']
+    kind: Literal['source','job','draft','asset','research']
     resource_id: str = Field(min_length=1,max_length=500)
 
 

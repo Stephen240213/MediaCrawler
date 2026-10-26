@@ -8,10 +8,86 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse, RedirectResponse
 
 from api.services import analytics, workbench_store
-from api.services.remix import providers, store, workflow, knowledge, source_links, profiles, publications, production, projects
+from api.services.remix import providers, store, workflow, knowledge, source_links, profiles, publications, production, projects, research
+from api.services.remix.research_schemas import ResearchSpace, ResearchRun, AssetTags
 from api.services.remix.schemas import JobInput, UploadInput, KnowledgeInput, VersionInput, ProfileInput, PublicationInput, ObservationInput, ProductionInput, ProjectInput, ProjectLink, EditorSnapshot
 
 router=APIRouter(prefix='/remix',tags=['ContentRemixAgent'])
+
+
+@router.get('/research/discovery')
+def research_discovery(search: str=Query('',max_length=200)):
+    try:return research.discovery(search)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/research/spaces')
+def research_spaces():return research.listing()
+
+
+@router.post('/research/spaces')
+def research_create(payload: ResearchSpace,request: Request):
+    try:return research.save(payload,actor(request))
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/research/spaces/{space_id}')
+def research_detail(space_id: str):
+    try:return research.detail(identifier(space_id))
+    except ValueError as exc:raise HTTPException(404,str(exc)) from exc
+
+
+@router.put('/research/spaces/{space_id}')
+def research_update(space_id: str,payload: ResearchSpace,request: Request):
+    try:return research.save(payload,actor(request),identifier(space_id))
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/research/spaces/{space_id}/plan')
+def research_plan(space_id: str):
+    try:return research.plan(identifier(space_id))
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.post('/research/spaces/{space_id}/runs')
+def research_submit(space_id: str,payload: ResearchRun,request: Request):
+    try:return research.submit(identifier(space_id),payload,actor(request))
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/research/runs/{run_id}')
+def research_run(run_id: str):
+    value=research.run_get(identifier(run_id))
+    if not value:raise HTTPException(404,'批次不存在')
+    return research.public_run(value)
+
+
+@router.post('/research/runs/{run_id}/cancel')
+async def research_cancel(run_id: str):
+    try:
+        await workflow.manager.cancel_research(identifier(run_id))
+        return research.public_run(research.run_get(run_id))
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
+
+
+@router.get('/research/revisions/{revision_id}')
+def research_revision(revision_id: str):
+    value=research.revision(identifier(revision_id))
+    if not value:raise HTTPException(404,'研究版本不存在')
+    return value
+
+
+@router.get('/research/spaces/{space_id}/assets')
+def research_assets(space_id: str,search: str=Query('',max_length=200),category: str=Query('',max_length=60),page: int=Query(1,ge=1)):
+    items=research.assets(identifier(space_id),search,category)
+    return dict(items=items[(page-1)*20:page*20],total=len(items),page=page)
+
+
+@router.put('/research/spaces/{space_id}/assets/{asset_id}/tags')
+def research_asset_tags(space_id: str,asset_id: str,payload: AssetTags):
+    if not re.fullmatch(r'[a-f0-9]{64}',asset_id):raise HTTPException(404,'资产不存在')
+    try:return research.tag_asset(identifier(space_id),asset_id,payload)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from exc
 
 
 @router.get('/projects')
@@ -52,21 +128,21 @@ def unlink_project(project_id: str,payload: ProjectLink):
 
 @router.get('/editors/{kind}/{resource_id}')
 def editor_snapshot(kind: str,resource_id: str,request: Request):
-    if kind not in ('project','rewrite','production','draft'):raise HTTPException(404,'编辑器不存在')
+    if kind not in ('project','rewrite','production','draft','research'):raise HTTPException(404,'编辑器不存在')
     try:return projects.snapshot(actor(request),kind,resource_id)
     except ValueError as exc:raise HTTPException(409,str(exc)) from exc
 
 
 @router.put('/editors/{kind}/{resource_id}')
 def save_editor_snapshot(kind: str,resource_id: str,payload: EditorSnapshot,request: Request):
-    if kind not in ('project','rewrite','production','draft'):raise HTTPException(404,'编辑器不存在')
+    if kind not in ('project','rewrite','production','draft','research'):raise HTTPException(404,'编辑器不存在')
     try:return projects.save_snapshot(actor(request),kind,resource_id,payload)
     except ValueError as exc:raise HTTPException(409,str(exc)) from exc
 
 
 @router.delete('/editors/{kind}/{resource_id}')
 def clear_editor_snapshot(kind: str,resource_id: str,request: Request,revision: int=Query(ge=0)):
-    if kind not in ('project','rewrite','production','draft'):raise HTTPException(404,'编辑器不存在')
+    if kind not in ('project','rewrite','production','draft','research'):raise HTTPException(404,'编辑器不存在')
     try:return projects.clear_snapshot(actor(request),kind,resource_id,revision)
     except ValueError as exc:raise HTTPException(409,str(exc)) from exc
 

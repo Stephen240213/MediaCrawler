@@ -1,4 +1,4 @@
-import {useRef, useState} from 'react'
+import {useEffect, useRef, useState} from 'react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
 import api from '@/lib/api'
 import {canOperate, useSession} from '@/lib/session'
@@ -7,6 +7,7 @@ import {BriefForm, defaultBrief, EvidenceCoverage, KnowledgePanel, RewriteResult
 import {ProfilePanel, CommentTopics, PublicationPanel} from './remix-learning'
 import {ProductionPanel} from './remix-production'
 import {useContentProjects} from './ContentProjects'
+import {ResearchWorkbench} from './ResearchWorkbench'
 import './remix.css'
 
 type Config = {provider_host?: string; model: string; model_ready: boolean; issues: string[]; asr: string; asr_model: string; asr_ready: boolean; ffmpeg_ready: boolean; cloud_audio: boolean; max_seconds: number; chunk_bytes: number}
@@ -22,6 +23,13 @@ const active = (job?: Job) => job && ['running','queued'].includes(job.status)
 const time = (seconds: number) => `${Math.floor(seconds/60)}:${Math.floor(seconds%60).toString().padStart(2,'0')}`
 
 export function ContentRemixAgent({openRequest}:{openRequest?:{id:string;projectId:string;sequence:number}|null}) {
+  const [dimension,setDimension]=useState<'single'|'account'|'topic'>('single')
+  const [shared,setShared]=useState(false)
+  useEffect(()=>{if(openRequest){setDimension('single');setShared(false)}},[openRequest?.sequence])
+  return <><section className="wb-card remix-card research-nav" aria-label="研究维度"><h2>AI 内容研究与创作</h2><div className="an-actions">{([['single','单条内容'],['account','单账号'],['topic','专题与类目资产']] as const).map(([value,label])=><button key={value} className="wb-button" aria-pressed={dimension===value} onClick={()=>setDimension(value)}>{label}</button>)}</div><p className="wb-hint">三种范围共享中性素材理解。研究账号按真实发布者识别；创作账号画像在按需改写时使用。</p>{dimension==='single'&&<div className="an-actions"><button className="wb-button" aria-pressed={!shared} onClick={()=>setShared(false)}>深度拆解与按需改写</button><button className="wb-button" aria-pressed={shared} onClick={()=>setShared(true)}>共享素材研究（不生成改写）</button></div>}</section>{dimension==='single'&&!shared?<SingleContentAnalysis openRequest={openRequest}/>:<ResearchWorkbench key={dimension} kind={dimension}/>}</>
+}
+
+function SingleContentAnalysis({openRequest}:{openRequest?:{id:string;projectId:string;sequence:number}|null}) {
   const writable=canOperate(useSession());const cache=useQueryClient()
   const [mode,setMode]=useState<'xhs'|'upload'>('xhs')
   const [search,setSearch]=useState('');const [sourcePage,setSourcePage]=useState(1)
@@ -32,7 +40,7 @@ export function ContentRemixAgent({openRequest}:{openRequest?:{id:string;project
   const [comments,setComments]=useState(true);const [pastedComments,setPastedComments]=useState('')
   const [consent,setConsent]=useState(false);const [busy,setBusy]=useState(false)
   const [uploadPercent,setUploadPercent]=useState<number|null>(null)
-  const [projectId,setProjectId]=useState(openRequest?.projectId||'');const projects=useContentProjects()
+  const [useResearch,setUseResearch]=useState(false);const [projectId,setProjectId]=useState(openRequest?.projectId||'');const projects=useContentProjects()
   const [notice,setNotice]=useState('');const [selected,setSelected]=useState(openRequest?.id||'');const [jobsPage,setJobsPage]=useState(1)
   const [citation,setCitation]=useState<Evidence|null>(null)
   const requestKey=useRef<{fingerprint:string;key:string}|null>(null)
@@ -63,7 +71,7 @@ export function ContentRemixAgent({openRequest}:{openRequest?:{id:string;project
     setBusy(true);setNotice('');setUploadPercent(null)
     try{
       const uploadId=mode==='upload'?await upload():''
-      const input={project_id:projectId,source:mode,content_id:mode==='xhs'?contentId:'',upload_id:uploadId,title:mode==='upload'?file?.name.replace(/\.[^.]+$/,'')||'':'',analyze_video:video,include_comments:comments,pasted_comments:pastedComments,brief,profile_id:profileId,include_global_knowledge:includeGlobal,consent}
+      const input={project_id:projectId,include_project_research:useResearch,source:mode,content_id:mode==='xhs'?contentId:'',upload_id:uploadId,title:mode==='upload'?file?.name.replace(/\.[^.]+$/,'')||'':'',analyze_video:video,include_comments:comments,pasted_comments:pastedComments,brief,profile_id:profileId,include_global_knowledge:includeGlobal,consent}
       const fingerprint=JSON.stringify(input)
       if(requestKey.current?.fingerprint!==fingerprint) requestKey.current={fingerprint,key:crypto.randomUUID()}
       const response=await api.post<Job>('/remix/jobs',{...input,request_key:requestKey.current.key})
@@ -75,7 +83,7 @@ export function ContentRemixAgent({openRequest}:{openRequest?:{id:string;project
     if(!job?.input||!consent)return
     setBusy(true);setNotice('')
     try{
-      const input={...job.input,project_id:projectId,brief,profile_id:profileId,include_global_knowledge:includeGlobal,include_comments:comments,pasted_comments:pastedComments,consent}
+      const input={...job.input,project_id:projectId,include_project_research:useResearch,brief,profile_id:profileId,include_global_knowledge:includeGlobal,include_comments:comments,pasted_comments:pastedComments,consent}
       const fingerprint=JSON.stringify(input)
       if(requestKey.current?.fingerprint!==fingerprint)requestKey.current={fingerprint,key:crypto.randomUUID()}
       const response=await api.post<Job>('/remix/jobs',{...input,request_key:requestKey.current.key})
@@ -104,7 +112,7 @@ export function ContentRemixAgent({openRequest}:{openRequest?:{id:string;project
         <details open={!config.data.model_ready||!config.data.asr_ready}><summary>本机配置说明</summary><p>在 Mac 的私有 remote.env 中设置以下变量，重启 MediaCrawler 后生效。密钥不要填写到网页、聊天或 Git。兼容服务需支持 /chat/completions、JSON 对象输出。</p><pre>MC_REMIX_API_KEY=your_api_key{`\n`}MC_REMIX_BASE_URL=https://api.openai.com/v1{`\n`}MC_REMIX_MODEL=gpt-4.1-mini{`\n`}MC_REMIX_ASR=moss</pre><p>Mac 安装媒体工具：<code>brew install ffmpeg</code>。MOSS 本机转写复用 BaoCut 自带的 worker 和已下载的 MOSS、Qwen3 时间戳对齐模型，不会自动下载模型。默认从 /Applications/BaoCut.app 和 ~/.baocut/models 读取，可通过 MC_REMIX_MOSS_WORKER、MC_REMIX_MOSS_MODELS 指定其他路径；需要可用的 MLX／Metal 后端。若使用 whisper.cpp，设置 MC_REMIX_ASR=local、MC_REMIX_WHISPER_MODEL，并安装 whisper-cli；可通过 MC_REMIX_WHISPER_BIN 指定路径。若改用云端转写，设置 MC_REMIX_ASR=cloud、MC_REMIX_ASR_MODEL=whisper-1，服务需支持带片段时间戳的 /audio/transcriptions。</p>{config.data.issues.map(issue=><p key={issue}>{issue}</p>)}</details>
       </>}
     </section>
-    <section className="wb-card remix-card"><label>当前内容项目<select aria-label="当前内容项目" value={projectId} onChange={e=>{setProjectId(e.target.value);setConsent(false)}}><option value="">暂不关联项目</option>{projects.data?.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>{job&&projectId&&<button className="wb-button" disabled={!writable||busy} onClick={()=>void (async()=>{try{await api.post(`/remix/projects/${projectId}/links`,{kind:'job',resource_id:job.id});setNotice('此分析已关联项目，后续成稿和成品将自动汇集。');await cache.invalidateQueries({queryKey:['content-project',projectId]})}catch(e){setNotice(errorMessage(e))}})()}>将当前分析关联此项目</button>}</section>
+    <section className="wb-card remix-card"><label>当前内容项目<select aria-label="当前内容项目" value={projectId} onChange={e=>{setProjectId(e.target.value);setUseResearch(false);setConsent(false)}}><option value="">暂不关联项目</option>{projects.data?.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>{projectId&&<label className="remix-check"><input type="checkbox" checked={useResearch} disabled={!writable} onChange={e=>{setUseResearch(e.target.checked);setConsent(false)}}/>使用项目明确引用的研究版本（候选资产与原文摘录）</label>}{job&&projectId&&<button className="wb-button" disabled={!writable||busy} onClick={()=>void (async()=>{try{await api.post(`/remix/projects/${projectId}/links`,{kind:'job',resource_id:job.id});setNotice('此分析已关联项目，后续成稿和成品将自动汇集。');await cache.invalidateQueries({queryKey:['content-project',projectId]})}catch(e){setNotice(errorMessage(e))}})()}>将当前分析关联此项目</button>}</section>
     <ProfilePanel writable={writable} selected={profileId} onSelect={p=>{setProfileId(p?.id||'');setIncludeGlobal(false);setConsent(false);setBrief({...brief,platform:p?.platform||'xhs',audience:p?.audience||'',tone:p?.tone||'',topic:p?.topic||'',avoid:p?.avoid||''})}}/>
     <section className="wb-card remix-card"><h2>新建分析</h2><fieldset disabled={!writable||busy}><div className="an-actions"><button type="button" className="wb-button" aria-pressed={mode==='xhs'} onClick={()=>changeMode('xhs')}>已有小红书内容</button><button type="button" className="wb-button" aria-pressed={mode==='upload'} onClick={()=>changeMode('upload')}>上传视频</button></div>
       {mode==='xhs'?<><label>搜索已采集标题或内容 ID<input value={search} onChange={e=>{setSearch(e.target.value);setSourcePage(1)}}/></label>
@@ -119,7 +127,7 @@ export function ContentRemixAgent({openRequest}:{openRequest?:{id:string;project
       <label className="remix-check"><input type="checkbox" checked={comments} onChange={e=>{setComments(e.target.checked);setConsent(false)}}/>分析已有评论样本（不会自动采集）</label>
       {comments&&<label>补充评论（每行一条）<textarea aria-label="补充评论（每行一条）" rows={3} maxLength={8000} value={pastedComments} placeholder="可粘贴需要分析的评论；同一行作为一条评论，内容会发送给所选分析模型。" onChange={e=>{setPastedComments(e.target.value);setConsent(false)}}/></label>}
       {video&&config.data&&(!config.data.asr_ready||!config.data.ffmpeg_ready)&&<p className="wb-error">视频分析需要 FFmpeg 和已配置的转写服务，请先完成本机配置。</p>}
-      <label className="remix-check"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/>我同意将本次标题、正文、所选语音转写、评论样本、账号画像、创作需求及适用写作经验发送给已配置的分析模型。{video&&config.data?.cloud_audio?'云端转写还会发送视频音频。':'本机转写不会向转写服务发送音频。'}模型调用可能产生费用。</label>
+      <label className="remix-check"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/>我同意将本次标题、正文、所选语音转写、评论样本、账号画像、创作需求、适用写作经验及勾选的项目研究发送给已配置的分析模型。{video&&config.data?.cloud_audio?'云端转写还会发送视频音频。':'本机转写不会向转写服务发送音频。'}模型调用可能产生费用。</label>
       <p className="wb-hint">每次最多分析 30000 字，模型输出最多 10000 token；后台串行执行，队列最多 5 个。重试未完成的模型调用可能重复计费。</p>
       <button className="wb-button primary" disabled={!consent||!config.data?.model_ready||(mode==='xhs'?!contentId:!file)||(video&&(!config.data?.asr_ready||!config.data?.ffmpeg_ready))} onClick={()=>void submit()}>{busy?'正在提交…':'开始分析'}</button>
       {busy&&uploadPercent!==null&&<p role="status">视频上传 {uploadPercent}%</p>}

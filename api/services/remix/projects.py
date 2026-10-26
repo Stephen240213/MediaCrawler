@@ -39,6 +39,14 @@ def save(payload,actor,project_id=None):
 
 
 def resolve(kind,resource_id):
+    if kind=='research':
+        from . import research
+        item=research.revision(resource_id)
+        if not item:return None
+        history=research.revisions(item['space_id'])
+        return dict(id=resource_id,title=item['space']['name'],status=item['status'],
+                    version=resource_id[:8],newer_available=bool(history and history[0]['id']!=resource_id),
+                    stats=item['stats'],created_at=item['created_at'])
     if kind=='job':
         item=store.get(resource_id)
         return dict(id=resource_id,title=item['title'],status=item['status']) if item else None
@@ -103,6 +111,9 @@ def detail(project_id):
 
 
 def editor_resource(kind,resource_id):
+    if kind=='research':
+        from . import research
+        if resource_id not in ('new-single','new-account','new-topic') and not research.get(resource_id):raise ValueError('研究范围不存在')
     if kind in ('rewrite','production') and not store.get(resource_id):raise ValueError('分析任务不存在')
     if kind=='project' and resource_id!='new' and not get(resource_id):raise ValueError('项目不存在')
     if kind=='draft' and resource_id!='current':raise ValueError('恢复编辑范围无效')

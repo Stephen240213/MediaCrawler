@@ -23,6 +23,9 @@ def snapshot(source, payload, comments=(), saved_total=0):
     source.update(profile=profile,creative_brief=brief, knowledge=knowledge.relevant(brief,payload.profile_id,payload.include_global_knowledge), comment_samples=[],
                   comment_context=dict(enabled=payload.include_comments, saved_total=saved_total,
                                        policy='补充评论优先，已保存评论按时间倒序取前160条候选，去重后最多80条。每条最多500字，总计8000字。'))
+    if payload.include_project_research:
+        from . import research
+        source['project_research']=research.project_context(payload.project_id)
     if not payload.include_comments:
         return source
     pasted = [dict(comment_id=f'manual-{i+1}', body=line.strip(), origin='user')
@@ -72,6 +75,10 @@ def build_evidence(source, transcript):
         snapshot = {**entry,'content':entry['content'][:800]}
         if append('writing_preference',json.dumps(snapshot,ensure_ascii=False)):
             used.append(dict(id=entry['id'],version=entry['version'],title=entry['title'],profile_id=entry.get('profile_id','')))
+    used_research=[]
+    for entry in source.get('project_research',[]):
+        if append('project_research',json.dumps(entry,ensure_ascii=False)):
+            used_research.append(dict(id=entry['revision_id'],name=entry['name'],assets=len(entry['assets'])))
     samples = source.get('comment_samples',[])
     comment_reserve = min(sum(len(c['text']) for c in samples), 8000, max(0,limit//3))
     body = source.get('body','')
@@ -100,7 +107,7 @@ def build_evidence(source, transcript):
     coverage = dict(body_chars=len(body_excerpt),body_original_chars=source.get('original_body_chars',len(body)),
         source_body_previously_truncated=source.get('truncated',False),
         transcript_chars=speech_used,transcript_original_chars=speech_chars,
-        comments={**source.get('comment_context',{}),'included':comment_used},used_knowledge=used,
+        comments={**source.get('comment_context',{}),'included':comment_used},used_knowledge=used,used_research=used_research,
         profile=({k:source['profile'][k] for k in ('id','version','name')} if source.get('profile') else None),
         visual_analysis=False)
     if not append('coverage',json.dumps(coverage,ensure_ascii=False)):
