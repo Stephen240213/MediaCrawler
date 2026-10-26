@@ -28,7 +28,12 @@ class JobInput(StrictModel):
     profile_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$')
     include_global_knowledge: bool = False
     include_project_research: bool = False
-    source: Literal['xhs', 'upload']
+    source: Literal['xhs', 'upload', 'manual', 'report', 'analytics', 'research']
+    material: str = Field(default='', max_length=18000)
+    reference_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$')
+    analytics_filters: dict[str, str] = Field(default_factory=dict, max_length=10)
+    agent_id: Literal['content_writer', 'script_writer'] = 'content_writer'
+    skill_ids: list[Literal['answer', 'compare', 'story', 'curate']] = Field(default_factory=list, max_length=4)
     content_id: str = Field(default='', max_length=200)
     upload_id: str = Field(default='', pattern=r'^([a-f0-9]{32})?$', max_length=32)
     title: str = Field(default='', max_length=200)

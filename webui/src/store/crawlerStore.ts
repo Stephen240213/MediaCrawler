@@ -47,6 +47,7 @@ function saveClearedLogIdToStorage(id: number | null): void {
 }
 
 const defaultConfig: CrawlerConfig = {
+  collection_method: 'redfox_mcp',
   platform: 'xhs',
   login_type: 'qrcode',
   crawler_type: 'search',

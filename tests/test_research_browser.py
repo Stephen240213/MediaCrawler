@@ -117,5 +117,12 @@ def test_research_topic_incremental_account_reuse_and_project_pin(remix_app,tmp_
         assert job['source']['project_research'][0]['revision_id']==old_id
         page.get_by_text('本次分析范围与写作经验',exact=True).click()
         expect(page.get_by_text('本次选用的项目研究快照',exact=False)).to_be_visible()
+        page.get_by_role('button',name='分析结果',exact=True).click()
+        page.get_by_label('打开已保存研究',exact=True).select_option(single_sid)
+        expect(page.get_by_role('heading',name='可追溯研究版本',exact=True)).to_be_visible()
+        expect(page.get_by_role('region',name='研究范围规则',exact=True)).to_be_hidden()
+        page.get_by_role('button',name='用此研究创作',exact=True).click()
+        expect(page.get_by_label('创作来源',exact=True)).to_have_value('research')
+        expect(page.get_by_label('创作研究版本',exact=True)).not_to_have_value('')
         assert not errors,errors
         browser.close()

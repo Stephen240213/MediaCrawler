@@ -19,8 +19,10 @@ def is_date_field(tool, field):
 
 
 def catalog_tools(tools):
+    from .redfox_fields import decorate
     result = deepcopy(tools)
     for tool in result:
+        decorate(tool)
         for field, spec in tool['inputSchema']['properties'].items():
             if is_date_field(tool['name'],field):
                 spec['format'] = 'date'

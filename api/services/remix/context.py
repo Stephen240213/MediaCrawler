@@ -61,13 +61,17 @@ def build_evidence(source, transcript):
         return True
     append('title', source['title'][:1000])
     metadata = {k:source.get(k) for k in ('kind','author','published_at','collected_at','metrics','video_available')}
-    metadata['platform'] = 'xhs' if source['kind']=='xhs' else '用户上传'
+    metadata['platform'] = {'xhs':'xhs','upload':'用户上传（原平台未知）','manual':'用户填写（原平台未知）','report':'分析报告（见来源快照）','research':'研究结果（见来源快照）','analytics':'数据分析（见筛选范围）'}.get(source['kind'],'未知')
     append('source_context', json.dumps(metadata,ensure_ascii=False))
     brief=dict(source.get('creative_brief',{}))
     supplemental=brief.pop('supplemental','')
     if supplemental:
         append('supplement',supplemental,origin='user_provided')
     append('brief', json.dumps(brief,ensure_ascii=False))
+    if source.get('execution'):
+        append('creation_execution', json.dumps(source['execution'],ensure_ascii=False))
+    if source.get('provenance'):
+        append('source_provenance', json.dumps(source['provenance'],ensure_ascii=False))
     if source.get('profile'):append('account_profile',json.dumps(source['profile'],ensure_ascii=False))
     used = []
     # Preferences guide expression; they are never source facts.

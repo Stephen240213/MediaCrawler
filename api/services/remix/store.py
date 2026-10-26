@@ -67,10 +67,17 @@ def get(job_id):
     return json.loads(row[0]) if row else None
 
 
-def listing(page=1):
+def listing(page=1, search='', status=''):
+    clauses=[];args=[]
+    if search:
+        clauses.append("instr(lower(json_extract(body,'$.title')),lower(?))>0")
+        args.append(search)
+    if status:
+        clauses.append('status=?');args.append(status)
+    where=' WHERE '+' AND '.join(clauses) if clauses else ''
     with connect() as db:
-        total = db.execute('SELECT count(*) FROM jobs').fetchone()[0]
-        rows = db.execute('SELECT body FROM jobs ORDER BY rowid DESC LIMIT 20 OFFSET ?', ((page-1)*20,)).fetchall()
+        total = db.execute('SELECT count(*) FROM jobs'+where,args).fetchone()[0]
+        rows = db.execute('SELECT body FROM jobs'+where+' ORDER BY rowid DESC LIMIT 20 OFFSET ?', [*args,(page-1)*20]).fetchall()
     items = []
     for row in rows:
         item = json.loads(row[0])

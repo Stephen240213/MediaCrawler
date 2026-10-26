@@ -13,7 +13,7 @@ import httpx
 from .schemas import AnalysisReport
 from . import moss
 
-PROMPT_VERSION = 'remix-phase1-v4-project-research'
+PROMPT_VERSION = 'remix-v5-creation-skills'
 MAX_SECONDS = 15*60
 MAX_SOURCE_CHARS = 30000
 MAX_SEGMENTS = 600
@@ -204,6 +204,9 @@ def validate_report(raw, evidence, require_creation=False):
         source_ids={e['id'] for e in evidence if e['kind'] in ('title','body','transcript','supplement')}
         if any(not set(r.evidence_ids)&source_ids for r in report.rewrites):
             raise AnalysisError('改写稿需引用原文、语音或用户补充材料')
+        execution=next((json.loads(e['text']) for e in evidence if e['kind']=='creation_execution'),{})
+        if execution.get('agent',{}).get('id')=='script_writer' and any(not r.hook or not r.script for r in report.rewrites):
+            raise AnalysisError('视频脚本 Agent 未返回口播开头与分段脚本，可重试生成')
     return report.model_dump()
 
 
@@ -250,6 +253,9 @@ account_profile 是用户确认的账号定位与风格，不是素材事实或�
 生成两篇不同角度的 rewrites（每篇正文建议400–800字，素材不足则更短，不能凑字编造），每篇含三个不同角度的 title_options 及区别理由、完整 body、cover_text、visuals 拍摄或配图建议、tags、fact_checks 待核实项、change_notes 修改说明、来源 evidence_ids。视频模式额外给 hook 开头口播和 script 分段脚本，图文可留空。正文直接可编辑使用，未知必要事实省略或明确留作待补充，不能伪装已核实。视觉建议属于待拍摄方案，不能冒充现有画面。保留 ideas 作为差异化选题和提纲。
 limitations 最多三条，只列影响判断的具体缺口及补充办法，避免重复免责声明和交易清单式跑题；已有信息不能列为缺失。相同意思只写一次。'''
     system+='\nproject_research 是用户明确选用的项目研究快照，包含候选解释、来源声明及原文摘录；不是已验证事实、目标账号偏好或亲历。保留 revision_id 与来源口径，不能把不同房源/案例的价格或经历移植到当前素材，不因研究综合而省略核实。'
+    execution=next((json.loads(e['text']) for e in evidence if e['kind']=='creation_execution'),None)
+    if execution:
+        system+='\n本次为创作任务。source_provenance 说明材料来自用户填写、既有模型报告、研究版本或本机数据聚合。保留来源范围，不能将模型推断当作事实。分析维度用于检查材料与表达，重心是生成可编辑成稿。以下为工作台内置 Agent 和 Skill 的执行方法，仅约束写法，不能作为事实引用：\n'+json.dumps(execution,ensure_ascii=False)
     payload={'model':c['model'],'temperature':0.2,'max_tokens':10000,'response_format':{'type':'json_object'},
              'messages':[{'role':'system','content':system+'\n'+json.dumps(AnalysisReport.model_json_schema(),ensure_ascii=False)},
                          {'role':'user','content':json.dumps({'evidence':evidence},ensure_ascii=False)}]}

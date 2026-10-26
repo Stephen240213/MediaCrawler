@@ -8,7 +8,7 @@ import {SourcePicker} from './SourcePicker'
 import {RecoveryNotice, useEditorRecovery} from './editor-recovery'
 
 type Kind='single'|'account'|'topic'
-export type ResearchRequest={taskId?:string;ids?:string[];name?:string;exact?:boolean;sequence:number}
+export type ResearchRequest={spaceId?:string;taskId?:string;ids?:string[];name?:string;exact?:boolean;sequence:number}
 type Scope={question:string;selection_mode:'rules'|'selected'|'task';task_id:string;name:string;kind:Kind;content_id:string;account_id:string;keywords:string[];contains:string[];excludes:string[];include_ids:string[];exclude_ids:string[];start:string;end:string;archived:boolean;version:number}
 type Space=Scope&{id:string}
 type Discovery={accounts:{id:string;name:string;count:number}[];unknown_accounts:number;scanned:number;selector_limited:boolean;keywords:string[];total:number;sources:{content_id:string;title:string}[]}
@@ -33,8 +33,9 @@ const blank=(kind:Kind):Scope=>({question:'',selection_mode:kind==='topic'?'sele
 const words=(value:string)=>value.split(/[\n,，]/).map(v=>v.trim()).filter(Boolean)
 const running=(run:Run)=>['queued','running'].includes(run.status)
 
-export function ResearchWorkbench({kind,request}:{kind:Kind;request?:ResearchRequest|null}){
+export function ResearchWorkbench({kind,request,onCreate,resultsOnly=false}:{kind:Kind;request?:ResearchRequest|null;onCreate?:(id:string)=>void;resultsOnly?:boolean}){
  const writable=canOperate(useSession());const cache=useQueryClient()
+ useEffect(()=>{if(request?.spaceId)setSelected(request.spaceId)},[request?.sequence])
  const [discoverySearch,setDiscoverySearch]=useState('');const [selected,setSelected]=useState('');const [notice,setNotice]=useState('');const [busy,setBusy]=useState(false)
  const [consent,setConsent]=useState(false);const [cap,setCap]=useState(20);const [revisionId,setRevisionId]=useState('');const [citation,setCitation]=useState('')
  const [assetPage,setAssetPage]=useState(1);const [search,setSearch]=useState('');const [category,setCategory]=useState('');const [project,setProject]=useState('')
@@ -63,6 +64,8 @@ export function ResearchWorkbench({kind,request}:{kind:Kind;request?:ResearchReq
  })
  const refs=(ids:string[])=><span className="remix-citations">{ids.map(id=><button className="wb-button" key={id} onClick={()=>setCitation(id)}>引用 {id.slice(0,12)}</button>)}</span>
  return <div className="remix research-workbench">
+  {rev&&<section className="wb-card remix-card"><div className="an-heading"><h2>研究结果 · {rev.space.name}</h2><button className="wb-button primary" disabled={!writable} onClick={()=>onCreate?.(rev.id)}>用此研究创作</button></div><p className="wb-hint">当前版本 {new Date(rev.created_at).toLocaleString('zh-CN')} · {states[rev.status]}，下方查看研究发现、素材和引用。</p></section>}
+  <details open={!resultsOnly}><summary>研究范围与执行设置</summary>
   <section className="wb-card remix-card"><div className="an-heading"><h2>{names[kind]}</h2><div className="an-actions"><button className="wb-button" onClick={()=>void refresh()}>更新本机纳入范围</button><button className="wb-button" disabled={!writable} onClick={()=>{setSelected('');setRevisionId('');setNotice('')}}>新建{names[kind]}</button></div></div>
    <p>仅处理本机已保存的小红书标题、正文和评论。关键词是发现入口，账号是实际发布者，类目用于长期组织资产。新增或变化资料需手动提交增量批次，创建范围不会自动付费。</p>
    <label>筛选本机研究选择器<input aria-label="筛选本机研究选择器" value={discoverySearch} onChange={e=>setDiscoverySearch(e.target.value)}/></label>{discovery.data?.selector_limited&&<p>选择器只展示匹配的前5000条，请输入标题、昵称或内容ID继续查找。此筛选不改变已保存的研究范围。</p>}{kind==='account'&&<p className="wb-hint">当前选择器样本中，{discovery.data?.unknown_accounts||0} 条资料缺少可靠作者 ID，暂未归属账号。此处不使用昵称分组，也不修改创作账号画像。</p>}
@@ -76,6 +79,9 @@ export function ResearchWorkbench({kind,request}:{kind:Kind;request?:ResearchReq
     <fieldset disabled={!writable||busy||detail.data?.space.archived}><label>本批模型调用上限<input aria-label="本批模型调用上限" type="number" min={1} max={40} value={cap} onChange={e=>setCap(Math.max(1,Math.min(40,Number(e.target.value)||1)))}/></label><label className="remix-check"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/>确认将本批正文、评论与结构化结果发送给配置的模型服务，可能产生费用；达到上限后停止</label><button className="wb-button primary" disabled={!consent} onClick={()=>void submit()}>仅分析新增与变化，并更新综合</button></fieldset></>}</>}
   </section>}
   {!!detail.data?.runs.length&&<section className="wb-card remix-card"><h2>增量批次记录</h2>{detail.data.runs.map(r=><details key={r.id} open={running(r)||r.status==='partial'||r.status==='failed'}><summary>{states[r.status]} · {new Date(r.created_at).toLocaleString()} · 调用 {r.calls.length}/{r.max_calls}</summary>{r.error&&<p role="alert">{r.error}</p>}<p>已记录调用 {r.calls.filter(c=>c.status==='completed').length} · 失败或结果未知 {r.calls.filter(c=>['unknown','failed_or_unknown','started'].includes(c.status)).length} · 返回 token {r.calls.reduce((n,c)=>n+(c.usage?.total_tokens||0),0)}</p>{r.items.map(i=><p key={i.content_id}>{i.title}：{states[i.status]} {i.error||''}</p>)}{running(r)&&<button className="wb-button" disabled={!writable||busy} onClick={()=>void action(async()=>{await api.post(`/remix/research/runs/${r.id}/cancel`);await refresh()})}>取消此批次</button>}</details>)}</section>}
+  </details>
+  {resultsOnly&&detail.isError&&<p role="alert">研究结果读取失败。<button className="wb-button" onClick={()=>void detail.refetch()}>重新读取研究结果</button></p>}
+  {resultsOnly&&detail.data&&!detail.data.latest&&<p role="status">此范围尚无研究结果，可展开执行设置查看批次进度或提交分析。</p>}
   {detail.data?.latest&&<section className="wb-card remix-card"><h2>可追溯研究版本</h2><label>查看报告版本<select aria-label="查看报告版本" value={revisionId} onChange={e=>{setRevisionId(e.target.value);setCitation('')}}><option value="">当前最新版本</option>{detail.data.revisions.map(r=><option key={r.id} value={r.id}>{r.id.slice(0,8)} · {states[r.status]} · {new Date(r.created_at).toLocaleString()}</option>)}</select></label>{archivedRevision.isError&&<p role="alert">历史版本读取失败。</p>}
    {rev&&<><p>版本 {rev.id.slice(0,8)} · {states[rev.status]}。新研究版本不覆盖文稿、制作或发布记录。</p><p>覆盖：正文 {rev.stats.body_covered}/{rev.stats.members} 条；已保存评论 {rev.stats.comments_saved}，抽样 {rev.stats.comments_sampled}，已分析 {rev.stats.comments_covered}，涉及 {rev.stats.comments_note_coverage} 条素材。</p><p>未知作者 {rev.stats.unknown_accounts} 条。评论覆盖仅指本机样本；来源声明和方法候选仍需核实。</p><details><summary>来源、时间与互动统计</summary>{rev.members.map(m=><p key={m.source_key}>{m.title} · {m.published_at?new Date(m.published_at).toLocaleDateString():'发布时间未知'}</p>)}{Object.entries(rev.stats.metrics).map(([k,v])=><p key={k}>{({likes:'点赞',favorites:'收藏',comments:'评论',shares:'分享'} as Record<string,string>)[k]}：已知 {v.known}/{rev.stats.members} 条 · 已知值合计 {v.total}。不同发布时间未经校正，不用于因果排名。</p>)}</details>
    <details><summary>共享素材理解与表达拆解（{rev.materials.length} 条）</summary>{rev.materials.map(m=><div className="remix-section" key={m.source_key}><h3>{m.title}</h3><p>{m.summary}</p><p>开头：{m.opening}</p><p>结构：{m.structure}</p>{!m.body_available&&<p>仅标题，正文缺失。</p>}{m.body_truncated&&<p>正文仅纳入前12000字。</p>}{m.limitations.map((v,i)=><p key={i}>局限：{v}</p>)}{refs(m.evidence_ids)}</div>)}</details>{rev.groups.map(g=><div className="remix-section" key={g.id}><h3>{g.category} · 分组 {g.bucket} · {states[g.status]}</h3><p>{g.source_count} 条素材 · {g.comment_count} 条已分析评论 · 综合纳入 {g.synthesized_assets}/{g.asset_count} 项资产{g.cache_hit?' · 分组缓存复用':''}</p>{g.error&&<p role="alert">{g.error}</p>}{g.result&&<><p>{g.result.summary}</p>{g.result.findings.map((a,i)=><div key={i}><p>{a.kind}：{a.text}</p>{refs(a.evidence_ids)}</div>)}{g.result.gaps.map((gap,i)=><p key={i}>待补资料：{gap}</p>)}</>}</div>)}{!rev.groups.length&&<p>当前范围没有可综合的资产；请查看批次状态与素材缺口。</p>}

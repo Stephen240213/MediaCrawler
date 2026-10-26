@@ -39,7 +39,7 @@ function WordCloud({points, onSelect}: {points: Point[]; onSelect: (p: Point) =>
 }
 
 export type AnalyticsRequest={taskId:string;platform:string;sequence:number}
-export function Analytics({request}:{request?:AnalyticsRequest|null}) {
+export function Analytics({request,onCreate}:{request?:AnalyticsRequest|null;onCreate?:(filters:Record<string,string>)=>void}) {
   const writable = canOperate(useSession())
   const cache = useQueryClient()
   const [platform, setPlatform] = useState('')
@@ -119,7 +119,7 @@ export function Analytics({request}:{request?:AnalyticsRequest|null}) {
         <label>日期范围口径<select value={basis} onChange={e => {setBasis(e.target.value); resetPage()}}><option value="published_at">内容发布时间</option><option value="collected_at">最近采集时间</option></select></label>
         <label>开始日期<input type="date" value={start} onChange={e => {setStart(e.target.value); resetPage()}}/></label>
         <label>结束日期<input type="date" value={end} onChange={e => {setEnd(e.target.value); resetPage()}}/></label>
-      </div><div className="an-actions"><button className="wb-button" onClick={reset}>清除筛选与明细定位</button><button className="wb-button" disabled={busy || !data?.ready} onClick={() => void exportFile('csv')}>导出 CSV</button><button className="wb-button" disabled={busy || !data?.ready} onClick={() => void exportFile('xlsx')}>导出 Excel</button></div>
+      </div><div className="an-actions"><button className="wb-button primary" disabled={!writable||!data?.ready||!summary?.content_count} onClick={()=>onCreate?.(options)}>用当前数据创作</button><button className="wb-button" onClick={reset}>清除筛选与明细定位</button><button className="wb-button" disabled={busy || !data?.ready} onClick={() => void exportFile('csv')}>导出 CSV</button><button className="wb-button" disabled={busy || !data?.ready} onClick={() => void exportFile('xlsx')}>导出 Excel</button></div>
       <p className="an-muted">MCP 来源和批次按已保存的精确成员筛选，同一内容可属于多个批次，当前统计仍按内容 ID 去重。指标展示资料库当前版本，不是历史快照。日期均为北京时间（UTC+8）。发布时间反映内容发布，采集时间反映每条内容最近一次采集；当前日期筛选同时作用于所有面板。导出当前内容筛选，不包含评论文本筛选。</p>
       {(drill.author_id || drill.content_id || drill.content_type || word) && <p className="an-selection">明细定位：{drill.content_id && `内容 ${drill.content_id} `}{drill.author_id && '已选作者 '}{drill.content_type && `类型 ${drill.content_type === '__missing__' ? '未提供' : drill.content_type} `}{word && `评论包含「${word}」`}</p>}
     </section>

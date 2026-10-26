@@ -15,6 +15,12 @@ from api.services.remix.schemas import JobInput, UploadInput, KnowledgeInput, Ve
 router=APIRouter(prefix='/remix',tags=['ContentRemixAgent'])
 
 
+@router.get('/creation/catalog')
+def creation_catalog():
+    from api.services.remix.creation import catalog
+    return catalog()
+
+
 @router.get('/research/discovery')
 def research_discovery(search: str=Query('',max_length=200)):
     try:return research.discovery(search)
@@ -225,8 +231,8 @@ async def upload_chunk(upload_id: str, request: Request, offset: int=Query(ge=0)
 
 
 @router.get('/jobs')
-def jobs(page: int=Query(1,ge=1)):
-    return store.listing(page)
+def jobs(page: int=Query(1,ge=1),search: str=Query('',max_length=200),status: str=Query('',pattern=r'^(|queued|running|completed|failed|interrupted|cancelled)$')):
+    return store.listing(page,search,status)
 
 
 @router.post('/jobs')

@@ -20,7 +20,8 @@ export function Collector() {
   const update = useCrawlerStore(s => s.updateConfig)
   const status = useCrawlerStore(s => s.status)
   const writable = canOperate(useSession())
-  return <div className="wb-collector"><section className="wb-card" style={{padding:20,marginBottom:16}}><label>采集方式<select aria-label="采集方式" value={config.collection_method || 'browser'} disabled={!writable || status==='running' || status==='stopping'} onChange={e=>update({collection_method:e.target.value as 'browser' | 'redfox_mcp'})}><option value="browser">浏览器采集</option><option value="redfox_mcp">RedFox MCP</option></select></label></section>{config.collection_method === 'redfox_mcp' ? <RedFoxCollector/> : <BrowserCollector/>}</div>
+  const method = config.collection_method || 'redfox_mcp'
+  return <div className="wb-collector"><section className="wb-card" style={{padding:20,marginBottom:16}}><label>采集方式<select aria-label="采集方式" value={method} disabled={!writable || status==='running' || status==='stopping'} onChange={e=>update({collection_method:e.target.value as 'browser' | 'redfox_mcp'})}><option value="redfox_mcp">RedFox MCP</option><option value="browser">浏览器采集</option></select></label></section>{method === 'redfox_mcp' ? <RedFoxCollector/> : <BrowserCollector/>}</div>
 }
 function BrowserCollector() {
   const writable = canOperate(useSession())

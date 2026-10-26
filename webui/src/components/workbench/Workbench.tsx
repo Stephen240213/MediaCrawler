@@ -1,3 +1,4 @@
+import {type CreationRequest} from './CreationPanel'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, ArrowUpRight, Database, FilePenLine, FolderOpen, LayoutDashboard, Monitor, Sparkles, Images, ShieldCheck } from 'lucide-react'
@@ -24,7 +25,7 @@ type Page = 'projects' | 'collect' | 'drafts' | 'assets' | 'data' | 'tasks' | 'a
 const pages = [
   {id: 'projects' as const, label: '内容项目', icon: FolderOpen},
   {id: 'collect' as const, label: '采集工作台', icon: LayoutDashboard},
-  {id: 'drafts' as const, label: '草稿预览', icon: FilePenLine},
+  {id: 'drafts' as const, label: '创作工作台', icon: FilePenLine},
   {id: 'assets' as const, label: '素材管理', icon: Images},
   {id: 'data' as const, label: '数据文件', icon: Database},
   {id: 'analytics' as const, label: '数据分析', icon: Activity},
@@ -36,6 +37,9 @@ const localTools = [
   {page: 'assets' as const, title: '素材整理', description: '导入、预览和选择素材', icon: FolderOpen},
 ]
 export function Workbench({onLicense}: {onLicense: () => void}) {
+  const [creationRequest,setCreationRequest]=useState<CreationRequest|null>(null)
+  const create=(request:Omit<CreationRequest,'sequence'>)=>{setCreationRequest({...request,sequence:Date.now()});setPage('drafts')}
+  const openReport=(id:string)=>{setResearchRequest(null);setRemixRequest({id,projectId:'',sequence:Date.now()});setPage('remix')}
   const [page, setPage] = useState<Page>('collect')
   const [assetRequest, setAssetRequest] = useState<{id: string; sequence: number} | null>(null)
   const [remixRequest,setRemixRequest]=useState<{id:string;projectId:string;sequence:number}|null>(null)
@@ -60,19 +64,19 @@ export function Workbench({onLicense}: {onLicense: () => void}) {
       <div className="wb-sidebar-bottom"><div><ShieldCheck size={17}/><span>本机存储<small>数据与草稿保存在电脑上</small></span></div><button onClick={onLicense}>查看项目使用条款 <ArrowUpRight size={13}/></button></div>
     </aside>
     <div className="wb-main"><header className="wb-topbar"><span>工作空间 <span className="wb-slash">/</span> <strong>{active.label}</strong></span><span className={`wb-service ${online ? '' : 'offline'}`}><i/>{isError ? '本机服务离线' : online ? '本机服务在线' : '正在连接服务'}<span>127.0.0.1</span></span></header>
-      <main className="wb-content"><div className="wb-page-heading"><div><p className="wb-eyebrow">YOUR LOCAL WORKSPACE</p><h1>{active.label}</h1><p>{page === 'projects' ? '串联资料、编辑、成品与发布结果。' : page === 'remix' ? '从真实素材出发，生成带引用的内容拆解报告。' : page === 'analytics' ? '基于本机 SQLite 采集数据，查看趋势、互动与评论。' : page === 'collect' ? '从内容发现到灵感整理，让每一步清晰可见。' : page === 'drafts' ? '把灵感整理为草稿，一边编辑，一边预览。' : page === 'assets' ? '管理采集媒体与本机图片，随时用于草稿。' : page === 'tasks' ? '查看真实执行结果，回溯每次采集。' : '预览与导出已保存的采集数据。'}</p></div><span className="wb-local-label"><Monitor size={16}/>本机工作台</span></div>
-      <RemoteStatus/>{navigationError&&<p className="wb-error" role="alert">{navigationError}</p>}
+      <main className="wb-content"><div className="wb-page-heading"><div><p className="wb-eyebrow">YOUR LOCAL WORKSPACE</p><h1>{active.label}</h1><p>{page === 'projects' ? '串联资料、编辑、成品与发布结果。' : page === 'remix' ? '从真实素材出发，生成带引用的内容拆解报告。' : page === 'analytics' ? '基于本机 SQLite 采集数据，查看趋势、互动与评论。' : page === 'collect' ? '从内容发现到灵感整理，让每一步清晰可见。' : page === 'drafts' ? '从分析结果、数据或自己的材料出发，用 Agent 创作并编辑草稿。' : page === 'assets' ? '管理采集媒体与本机图片，随时用于草稿。' : page === 'tasks' ? '查看真实执行结果，回溯每次采集。' : '预览与导出已保存的采集数据。'}</p></div><span className="wb-local-label"><Monitor size={16}/>本机工作台</span></div>
+      {(page==='collect'||page==='tasks')&&<RemoteStatus/>}{navigationError&&<p className="wb-error" role="alert">{navigationError}</p>}
       {page === 'projects' && <ContentProjects onJob={(id,projectId)=>{setResearchRequest(null);setRemixRequest({id,projectId,sequence:Date.now()});setPage('remix')}} onDraft={id=>{setDraftRequest({id,sequence:Date.now()});setPage('drafts')}}/>}
       {page === 'collect' && <>
         <section className="wb-hero"><span className="wb-hero-icon"><Sparkles size={27}/></span><div><h2>发现内容，沉淀灵感</h2><p>搜索内容、采集评论，将图片与想法整理成自己的草稿。</p><span>内容采集 <i/> 本机素材 <i/> 草稿预览</span></div><button className="wb-button primary" onClick={() => setPage('drafts')}><FilePenLine size={16}/>打开草稿 <ArrowUpRight size={15}/></button></section>
         <div className="wb-workspace-tabs"><span className="selected">采集工具</span><button onClick={() => setPage('data')}>数据与结果 <ArrowUpRight size={13}/></button><span className="wb-tabs-status">{status === 'running' ? '任务执行中' : status === 'stopping' ? '任务停止中' : '选择工具开始采集'}</span></div>
         <div className="wb-collection-layout"><aside className="wb-card wb-tool-directory"><div className="wb-card-heading"><h2>工具目录</h2><span className="wb-badge">{(method === 'redfox_mcp' ? 1 : collectionTools.length) + localTools.length}</span></div><p className="wb-category-label">内容采集 <span>{method === 'redfox_mcp' ? 1 : collectionTools.length}</span></p>{method === 'redfox_mcp' && <div className="wb-tool-item selected"><Monitor size={18}/><span><strong>RedFox MCP</strong><small>4 个平台 · 39 个工具</small></span></div>}{method !== 'redfox_mcp' && collectionTools.map(tool => <button key={tool.id} className={`wb-tool-item ${mode === tool.id ? 'selected' : ''}`} disabled={status === 'running' || status === 'stopping'} onClick={() => update({crawler_type: tool.id})}><tool.icon size={18}/><span><strong>{tool.title}</strong><small>{tool.description}</small></span></button>)}<p className="wb-category-label">本地创作 <span>{localTools.length}</span></p>{localTools.map(tool => <button className="wb-tool-item" key={tool.page} onClick={() => setPage(tool.page)}><tool.icon size={18}/><span><strong>{tool.title}</strong><small>{tool.description}</small></span></button>)}<div className="wb-directory-note"><Monitor size={16}/><p>{method === 'redfox_mcp' ? <>通过 RedFox MCP 执行<br/>在右侧选择平台与工具</> : <>使用现有浏览器执行<br/>首次采集请在浏览器中登录</>}</p></div></aside><Collector/><TaskPanel/></div>
       </>}
-      <div hidden={page !== 'drafts'}><DraftStudio assetRequest={assetRequest} openRequest={draftRequest}/></div>
+      <div hidden={page !== 'drafts'}><DraftStudio active={page==='drafts'} creationRequest={creationRequest} onReport={openReport} assetRequest={assetRequest} openRequest={draftRequest}/></div>
       {page === 'assets' && <AssetLibrary onUse={useAsset}/>}
       {page === 'data' && <><div className="wb-library-tabs"><button className="wb-button" aria-pressed={libraryView==='notes'} onClick={()=>setLibraryView('notes')}>内容资料库</button><button className="wb-button" aria-pressed={libraryView==='files'} onClick={()=>setLibraryView('files')}>导出数据文件</button>{datasetId&&<button className="wb-button" onClick={()=>setDatasetId('')}>查看全部资料</button>}</div>{libraryView==='notes'?<ContentLibrary key={datasetId||'all'} taskId={datasetId} onResearch={research}/>:<section className="wb-card wb-data-panel"><DataExplorer onAnalytics={(taskId,platform)=>{setAnalyticsRequest({taskId,platform,sequence:Date.now()});setPage('analytics')}} onResearch={id=>void researchTask({id,target:'MCP 采集'})}/></section>}</>}
-      {page === 'analytics' && <Analytics request={analyticsRequest}/>}
-      {page === 'remix' && <ContentRemixAgent openRequest={remixRequest} researchRequest={researchRequest}/>}
+      {page === 'analytics' && <Analytics request={analyticsRequest} onCreate={filters=>create({source:'analytics',filters})}/>}
+      {page === 'remix' && <ContentRemixAgent openRequest={remixRequest} researchRequest={researchRequest} onCreate={request=>create(request)}/>}
       {page === 'tasks' && <><TaskHistory onFiles={()=>{setLibraryView('files');setPage('data')}} onDataset={id=>{setDatasetId(id);setLibraryView('notes');setPage('data')}} onResearch={task=>void researchTask(task)}/><div className="wb-history-current"><TaskPanel/></div></>}
       <footer className="wb-footer">MediaCrawler · 本机内容工作台<span>内容采集 · 素材整理 · 草稿预览</span></footer>
       </main>

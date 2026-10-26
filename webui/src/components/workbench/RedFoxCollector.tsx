@@ -7,7 +7,8 @@ import { useCrawlerStore } from '@/store/crawlerStore'
 import { useStartCrawler, useStopCrawler } from '@/hooks/useCrawler'
 import { canOperate, useSession } from '@/lib/session'
 
-type Tool = {platform: string; name: string; description: string; inputSchema: {properties: Record<string, {type: string; enum?:string[]; format?:string}>; required: string[]}; datePolicies?:Record<string,{min:string;max:string;recommended:string}>}
+type Field = {type:string;enum?:(string|number)[];format?:string;choices?:{value:string|number;label:string}[];allowCustom?:boolean;minimum?:number;maximum?:number;step?:number}
+type Tool = {platform: string; name: string; description: string; inputSchema: {properties: Record<string, Field>; required: string[]}; datePolicies?:Record<string,{min:string;max:string;recommended:string}>}
 const platforms: Record<string, string> = {xhs: '小红书', dy: '抖音', twitter: 'X / Twitter', youtube: 'YouTube'}
 const labels: Record<string, string> = {keyword:'关键词', search_query:'搜索关键词', offset:'偏移量', page_num:'页码', page_size:'每页条数', work_id:'作品 ID', work_link:'笔记链接', work_url:'作品链接', video_id:'视频 ID', video_url:'视频链接', url:'视频 / 笔记链接', task_id:'远程任务 ID', account_id:'账号 ID', red_id:'小红书号', userid:'用户 ID', user_id:'用户 ID', sec_user_id:'sec_user_id', author_url:'创作者主页链接', tweet_id:'推文 ID', screen_name:'X 用户名', rest_id:'X 用户 ID', cursor:'翻页游标', continuation_token:'下一页令牌', opus_id:'笔记 ID', data_num:'评论条数（-1 为全部）', rank_date:'榜单日期', category:'分类', start_date:'开始日期', end_date:'结束日期', start_time:'开始时间', end_time:'结束时间', type:'分类', date_type:'榜单周期', sort_type:'排序方式', sort_by:'排序方式', search_type:'搜索类型', timeout_seconds:'超时秒数', short_id:'短号', unique_name:'抖音号', country_code:'国家代码', language_code:'语言代码', publish_time_start:'发布开始日期', publish_time_end:'发布结束日期'}
 
@@ -31,7 +32,7 @@ export function RedFoxCollector() {
     const args: Record<string, string | number> = {}
     for (const [name, schema] of Object.entries(tool.inputSchema.properties)) {
       if (!values[name]?.trim()) continue
-      args[name] = schema.type === 'number' ? Number(values[name]) : values[name].trim()
+      args[name] = schema.type === 'number' ? Number(values[name]) : schema.format==='date-time' ? values[name].replace('T',' ')+(values[name].length===16?':00':'') : values[name].trim()
     }
     if (tool.inputSchema.required.some(name => args[name] === undefined)) {setValidation('请填写工具的必填参数'); return}
     setValidation('')
@@ -49,7 +50,7 @@ export function RedFoxCollector() {
       {catalog.data && <p className={catalog.data.configured[platform] ? 'wb-hint' : 'wb-error'}>{catalog.data.configured[platform] ? '已找到本机持久化 RedFox 凭据。' : '未找到凭据：请在采集电脑配置 REDFOX_API_KEY 或 Codex MCP 持久配置后刷新。'}</p>}
       <label>MCP 工具<select aria-label="MCP 工具" value={tool?.name || ''} onChange={e=>{setSelected(e.target.value);const next=tools.find(t=>t.name===e.target.value);setValues(Object.fromEntries(Object.entries(next?.datePolicies||{}).map(([field,policy])=>[field,policy.recommended])));setParentId('');setValidation('')}}>{tools.map(t=><option key={t.name} value={t.name}>{t.description.split('。')[0]} · {t.name}</option>)}</select></label>
       {tool && <><p className="wb-hint" style={{whiteSpace:'pre-line'}}>{tool.description}</p>
-        <div className="wb-form-grid">{Object.entries(tool.inputSchema.properties).map(([name,schema])=><label key={tool.name+name}>{labels[name] || name}{tool.inputSchema.required.includes(name) ? ' *' : '（可选）'}{schema.enum ? <select aria-label={labels[name] || name} required={tool.inputSchema.required.includes(name)} value={values[name] || ''} onChange={e=>setValues({...values,[name]:e.target.value})}><option value="">请选择官方分类</option>{schema.enum.map(value=><option key={value} value={value}>{value}</option>)}</select> : <input aria-label={(labels[name] || name)+(tool.inputSchema.required.includes(name)?' *':'（可选）')} type={schema.format==='date'?'date':schema.type === 'number' ? 'number' : 'text'} min={tool.datePolicies?.[name]?.min} max={tool.datePolicies?.[name]?.max} step={schema.format==='date'?undefined:'any'} required={tool.inputSchema.required.includes(name)} value={values[name] || ''} onChange={e=>setValues({...values,[name]:e.target.value})} placeholder={name}/>}</label>)}</div></>}
+        <div className="wb-form-grid">{Object.entries(tool.inputSchema.properties).map(([name,schema])=><label key={tool.name+name}>{labels[name] || name}{tool.inputSchema.required.includes(name) ? ' *' : '（可选）'}<ParameterInput key={tool.name+name} name={name} schema={schema} required={tool.inputSchema.required.includes(name)} value={values[name]||''} onChange={value=>setValues({...values,[name]:value})} policy={tool.datePolicies?.[name]}/></label>)}</div></>}
       {tool?.datePolicies?.start_date&&<div className="wb-hint"><p>黑马榜按单日查询，并非从开始日期累计查询。为避开服务的30天边界，本工作台提交范围为上海日期 {tool.datePolicies.start_date.min} 至 {tool.datePolicies.start_date.max}；部分日期即使格式正确，也可能因数据或服务窗口问题被拒绝。</p><button type="button" className="wb-button" onClick={()=>{setValues({...values,start_date:tool.datePolicies!.start_date.recommended});setValidation('')}}>使用建议日期 {tool.datePolicies.start_date.recommended}</button><p>此按钮只填写日期；点击“执行 MCP 采集”才会发出请求，可能消耗积分。</p></div>}
       {tool?.name.includes('comments') && <label>关联内容 ID（可选）<input value={parentId} maxLength={200} pattern="[A-Za-z0-9_-]*" onChange={e=>setParentId(e.target.value)} placeholder="评论结果不含笔记/视频 ID 时填写"/><small>优先使用结果或原提交任务的内容 ID；此项用于补充历史任务的关联，不发送给 RedFox。</small></label>}
       <p className="wb-hint">每次执行一次工具调用，可能消耗 RedFox 积分；翻页需填写上次结果中的游标或偏移量后再次执行。评论、转写等异步工具只提交任务，请用对应结果查询工具读取远程任务 ID。</p>
@@ -59,4 +60,13 @@ export function RedFoxCollector() {
     <div className="wb-form-footer"><span>RedFox MCP · JSON 保存</span>{busy ? <button type="button" className="wb-button danger" disabled={!writable || status==='stopping' || stop.isPending} onClick={()=>stop.mutate()}><Square size={16}/>停止任务</button> : <button className="wb-button primary" type="submit" disabled={!writable || !tool || !catalog.data?.configured[platform]}><Play size={16}/>执行 MCP 采集</button>}</div>
     </form>
   </section>
+}
+
+function ParameterInput({name,schema,required,value,onChange,policy}:{name:string;schema:Field;required:boolean;value:string;onChange:(value:string)=>void;policy?:{min:string;max:string}}) {
+  const [custom,setCustom]=useState(false)
+  const label=labels[name]||name
+  const choices=schema.choices||schema.enum?.map(value=>({value,label:String(value)}))
+  const known=choices?.some(c=>String(c.value)===value)
+  if(choices) return <><select aria-label={label} required={required&&!custom} value={custom||value&&!known?'__custom':value} onChange={e=>{setCustom(e.target.value==='__custom');onChange(e.target.value==='__custom'?'':e.target.value)}}><option value="">{required?'请选择':'服务默认（不传此项）'}</option>{choices.map(c=><option key={c.value} value={c.value}>{c.label}</option>)}{schema.allowCustom&&<option value="__custom">其他（填写服务支持的值）</option>}</select>{(custom||value&&!known)&&<input aria-label={label+'自定义值'} required={required} value={value} onChange={e=>onChange(e.target.value)} placeholder="按 RedFox 文档填写"/>}</>
+  return <input aria-label={label+(required?' *':'（可选）')} type={schema.format==='date'?'date':schema.format==='date-time'?'datetime-local':schema.type==='number'?'number':'text'} min={policy?.min??schema.minimum} max={policy?.max??schema.maximum} step={schema.format==='date-time'?1:schema.step} required={required} value={value} onChange={e=>onChange(e.target.value)} placeholder={name}/>
 }

@@ -65,6 +65,8 @@ def test_analytics_browser_flow(local_app, tmp_path):
         page.on('pageerror',lambda error: errors.append(str(error)))
         page.add_init_script("localStorage.setItem('mediacrawler_license_accepted','true');localStorage.setItem('mediacrawler_env_checked','true')")
         page.goto(local_app)
+        expect(page.get_by_label('采集方式',exact=True)).to_have_value('redfox_mcp')
+        page.get_by_label('采集方式',exact=True).select_option('browser')
         expect(page.get_by_role('combobox',name='保存格式')).to_have_value('sqlite')
         expect(page.get_by_role('combobox',name='目标平台')).to_have_value('xhs')
         page.get_by_role('button',name='数据分析',exact=True).click()
@@ -136,7 +138,7 @@ def test_analytics_browser_flow(local_app, tmp_path):
         page.screenshot(path=str(evidence/'mobile.png'),full_page=True)
         assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'page must not overflow horizontally'
         # Existing destinations remain accessible.
-        for name in ['草稿预览','素材管理','任务记录','采集工作台']:
+        for name in ['创作工作台','素材管理','任务记录','采集工作台']:
             page.get_by_role('button',name=name,exact=True).click()
             expect(page.get_by_role('heading',name=name,level=1,exact=True)).to_be_visible()
         # Loading and API errors are explicit, and retry recovers.

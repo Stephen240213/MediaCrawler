@@ -1724,3 +1724,17 @@
 .workbench .wb-files-search>input:not([type=checkbox]) {border:0;padding:0;margin:0;background:transparent;box-shadow:none;min-height:0;height:auto;min-width:0;width:100%;font-size:13px}
 .wb-files-toolbar,.wb-files-tabs {align-items:center}
 .wb-files-tabs button {white-space:nowrap}
+
+/* Creation follows the same source → execution → result flow at every width. */
+.creation-panel {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
+.creation-panel > :nth-child(n+3) {grid-column:1/-1}
+.creation-panel .wb-card {min-width:0;margin:0;padding:24px}
+.creation-panel fieldset {border:0;padding:0;min-width:0}
+.creation-panel label {display:grid;gap:8px;margin:0}
+.creation-panel .remix-check {display:flex;align-items:flex-start;gap:9px}
+.creation-panel pre {white-space:pre-wrap;overflow-wrap:anywhere}
+.creation-skills {display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.creation-panel .remix-section p {overflow-wrap:anywhere;line-height:1.8}
+.wb-workspace-tabs button.selected {color:var(--wb-purple,#7c3aed);border-bottom:2px solid currentColor;font-weight:600}
+@media(max-width:1100px) {.creation-panel {grid-template-columns:minmax(0,1fr)}}
+@media(max-width:600px) {.creation-panel .wb-card {padding:18px}.wb-tabs-status {display:none}}

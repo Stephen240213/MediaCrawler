@@ -1,0 +1,55 @@
+"""End-to-end creation uses isolated local data and the fixture model."""
+import os
+from pathlib import Path
+from playwright.sync_api import sync_playwright, expect
+from tests.test_remix_browser import remix_app
+
+
+def test_agent_sources_results_and_editable_draft(remix_app):
+    with sync_playwright() as p:
+        browser=p.chromium.launch(executable_path=os.environ.get('MEDIACRAWLER_TEST_BROWSER') or None,headless=True)
+        page=browser.new_page(viewport={'width':1440,'height':1000})
+        errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+        page.add_init_script("localStorage.setItem('mediacrawler_license_accepted','true');localStorage.setItem('mediacrawler_env_checked','true')")
+        page.goto(remix_app)
+        expect(page.get_by_label('采集方式',exact=True)).to_have_value('redfox_mcp')
+        expect(page.get_by_label('排序方式',exact=True)).to_have_value('')
+        page.get_by_label('排序方式',exact=True).select_option('_2')
+        expect(page.get_by_label('排序方式',exact=True)).to_have_value('_2')
+        page.get_by_label('目标平台',exact=True).select_option('xhs')
+        page.get_by_label('MCP 工具',exact=True).select_option('xiaohongshu_get_hot_accounts')
+        page.get_by_label('榜单周期',exact=True).select_option('2')
+        expect(page.get_by_label('榜单周期',exact=True)).to_have_value('2')
+        page.get_by_role('button',name='创作工作台',exact=True).click()
+        page.get_by_role('button',name='AI 辅助创作',exact=True).click()
+        page.get_by_label('创作材料',exact=True).fill('路线两公里，停车情况需要核实。')
+        page.get_by_label('创作 Agent',exact=True).select_option('script_writer')
+        expect(page.get_by_label('输出形式',exact=True)).to_have_value('视频')
+        page.get_by_role('checkbox',name='决策对比 · v1',exact=True).check()
+        expect(page.get_by_role('button',name='调用 Agent 生成草稿',exact=True)).to_be_disabled()
+        page.get_by_role('checkbox',name='我同意将所选来源',exact=False).check()
+        page.get_by_role('button',name='调用 Agent 生成草稿',exact=True).click()
+        expect(page.get_by_role('button',name='选用并编辑此稿',exact=True)).to_be_visible(timeout=15000)
+        page.get_by_role('button',name='选用并编辑此稿',exact=True).click()
+        expect(page.get_by_label('标题',exact=True)).to_have_value('旅行安排方法1')
+        expect(page.get_by_label('正文',exact=True)).to_have_value(__import__('re').compile('先明确旅行需求'))
+        page.get_by_role('button',name='AI 内容分析',exact=True).click()
+        page.get_by_role('button',name='分析结果',exact=True).click()
+        page.locator('.remix-job').first.click()
+        expect(page.get_by_role('heading',name='内容摘要',exact=True)).to_be_visible()
+        page.get_by_role('button',name='用此报告创作',exact=True).click()
+        expect(page.get_by_label('创作来源',exact=True)).to_have_value('report')
+        expect(page.get_by_label('选择分析报告',exact=True)).not_to_have_value('')
+        page.get_by_role('button',name='数据分析',exact=True).click()
+        page.get_by_role('button',name='用当前数据创作',exact=True).click()
+        expect(page.get_by_label('创作来源',exact=True)).to_have_value('analytics')
+        proof=Path('/tmp/mediacrawler-creation-proof');proof.mkdir(exist_ok=True)
+        page.screenshot(path=str(proof/'desktop.png'),full_page=True)
+        page.set_viewport_size({'width':825,'height':740})
+        page.screenshot(path=str(proof/'tablet.png'))
+        assert page.evaluate('document.documentElement.scrollWidth<=window.innerWidth')
+        page.set_viewport_size({'width':390,'height':844})
+        page.screenshot(path=str(proof/'mobile.png'))
+        assert page.evaluate('document.documentElement.scrollWidth<=window.innerWidth')
+        assert not errors,errors
+        browser.close()

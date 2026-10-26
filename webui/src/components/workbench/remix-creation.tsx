@@ -15,9 +15,9 @@ type Entry = {profile_id?:string;id?:string;kind:string;title:string;content:str
 const emptyEntry:Entry={profile_id:'',kind:'preference',title:'',content:'',platform:'all',topic:'',reason:'',enabled:true,version:1,source_job_id:'',source_version_id:''}
 const platformNames:Record<string,string>={all:'全部平台',xhs:'小红书',douyin:'抖音',bilibili:'哔哩哔哩',other:'其他'}
 
-export function BriefForm({value,onChange}:{value:Brief;onChange:(value:Brief)=>void}) {
+export function BriefForm({value,onChange,defaultOpen=true}:{value:Brief;onChange:(value:Brief)=>void;defaultOpen?:boolean}) {
   const field=(key:keyof Brief,text:string,placeholder='')=><label>{text}<input maxLength={key==='must_keep'?1000:key==='topic'?100:300} value={value[key]} placeholder={placeholder} onChange={e=>onChange({...value,[key]:e.target.value})}/></label>
-  return <details open><summary>创作需求与改写框架</summary><div className="remix-form-grid">
+  return <details open={defaultOpen}><summary>创作需求与改写框架</summary><div className="remix-form-grid">
     <label>目标平台<select aria-label="目标平台" value={value.platform} onChange={e=>onChange({...value,platform:e.target.value})}>{Object.entries(platformNames).filter(([k])=>k!=='all').map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>
     <label>输出形式<select aria-label="输出形式" value={value.content_type} onChange={e=>onChange({...value,content_type:e.target.value})}><option>图文</option><option>视频</option></select></label>
     <label>创作目的<select aria-label="创作目的" value={value.objective} onChange={e=>onChange({...value,objective:e.target.value})}>{['分享','收藏','咨询','转化'].map(x=><option key={x}>{x}</option>)}</select></label>

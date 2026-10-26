@@ -16,6 +16,7 @@ def test_collection_limits_batch_navigation_picker_and_file_design(remix_app):
             route.fulfill(json={'status':'started','message':'fixture only','task_id':'a'*32})
         page.route('**/api/crawler/start',intercept)
         page.goto(remix_app)
+        page.get_by_label('采集方式',exact=True).select_option('browser')
         page.get_by_role('textbox',name='搜索关键词').fill('测试关键词')
         toggle=page.get_by_role('checkbox',name='启用网页筛选',exact=True)
         if not toggle.is_checked():toggle.check()

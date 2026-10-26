@@ -56,3 +56,6 @@
 .research-table-scroll table { width: 100%; border-collapse: collapse; text-align: left; }
 .research-table-scroll th, .research-table-scroll td { padding: 10px; border-bottom: 1px solid var(--wb-border, #e7e3ef); vertical-align: top; }
 .research-quote { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow-y: auto; }
+
+.remix-pane {min-width:0;display:grid;gap:22px}
+.remix-pane[hidden] {display:none}

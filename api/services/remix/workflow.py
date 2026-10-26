@@ -30,6 +30,9 @@ class State(TypedDict, total=False):
 
 
 def source_for(payload):
+    if payload.source in ('manual', 'report', 'analytics', 'research'):
+        from .creation import source_for as creation_source
+        return creation_source(payload)
     if payload.source=='upload':
         item=store.upload(payload.upload_id)
         if not item or not item['sha256'] or not store.upload_path(item).is_file():
