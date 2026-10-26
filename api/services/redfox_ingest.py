@@ -236,6 +236,10 @@ def sync_export(envelope, platform, observed=None, parent_id=''):
                 if kind == 'comment':
                     report['warnings'].append('评论按所属内容 ID 关联；尚未采集的父内容需另行采集，才会进入内容统计与分析。')
             db.execute('INSERT OR REPLACE INTO redfox_imports VALUES(?,?,?)', (task_id, signature, json.dumps(report, ensure_ascii=False)))
+        # Preserve every exact batch, including replays of exports written before this table existed.
+        for member in report['members']:
+            db.execute('INSERT OR IGNORE INTO analytics_collection_memberships VALUES(?,?,?,?)',
+                       (task_id, platform, member['content_id'], 'redfox_mcp'))
     # Analytics commits first; replay repairs this second durable store if interrupted.
     if platform == 'xhs':
         for member in report['members']:

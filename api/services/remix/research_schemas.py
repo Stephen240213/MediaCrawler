@@ -9,6 +9,7 @@ CATEGORIES = ('费用条件', '位置配套', '使用体验', '风险核查', '�
 class ResearchSpace(StrictModel):
     name: str = Field(min_length=1, max_length=150)
     kind: Literal['single', 'account', 'topic']
+    question: str = Field(default='',max_length=1500)
     content_id: str = Field(default='', max_length=200)
     account_id: str = Field(default='', pattern=r'^([a-f0-9]{64})?$')
     keywords: list[str] = Field(default_factory=list, max_length=20)

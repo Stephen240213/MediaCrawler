@@ -32,6 +32,13 @@ def research_source_choices(search: str=Query('',max_length=200),keyword: str=Qu
 def research_spaces():return research.listing()
 
 
+@router.post('/research/preview-statistics')
+def research_statistics(payload: ResearchSpace):
+    """Local calculations only; no saved scope or model consent is required."""
+    try:return research.preview_scope(payload)
+    except ValueError as exc:raise HTTPException(422,str(exc)) from exc
+
+
 @router.post('/research/spaces')
 def research_create(payload: ResearchSpace,request: Request):
     try:return research.save(payload,actor(request))

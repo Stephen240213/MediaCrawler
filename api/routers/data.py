@@ -35,6 +35,7 @@ def get_file_info(file_path: Path) -> dict:
     stat = file_path.stat()
     record_count = None
     display_name = None
+    mcp = None
 
     # Try to get record count
     try:
@@ -44,13 +45,15 @@ def get_file_info(file_path: Path) -> dict:
                 if isinstance(data, list):
                     record_count = len(data)
                     if file_path.parent.name == 'redfox' and data and isinstance(data[0],dict):
-                        from api.services.redfox_payload import check_result
+                        from api.services.redfox_preview import preview_export
+                        from api.services import workbench_store
                         display_name = 'RedFox MCP · ' + str(data[0].get('tool') or '原始结果')[:100]
-                        try:
-                            check_result(data[0].get('result',{}))
-                        except ValueError:
+                        parsed = preview_export(data[0],file_path.parent.parent.name,limit=0)
+                        record_count = parsed['total']
+                        task = workbench_store.get_document('task',str(data[0].get('task_id','')))
+                        mcp = {**parsed['mcp'], 'ingestion':(task or {}).get('ingestion')}
+                        if parsed['mcp']['state']=='error':
                             display_name = 'MCP 失败响应 · ' + str(data[0].get('tool') or '')[:100]
-                            record_count = 0
                 elif isinstance(data,dict) and file_path.parent.name=='search_metadata':
                     display_name=str(data.get('keyword') or '网页搜索')[:120]+' · 检索记录'
                     if data.get('membership_version')==1 and isinstance(data.get('members'),list):record_count=len(data['members'])
@@ -70,7 +73,8 @@ def get_file_info(file_path: Path) -> dict:
         "size": stat.st_size,
         "modified_at": stat.st_mtime,
         "record_count": record_count,
-        "type": file_path.suffix[1:] if file_path.suffix else "unknown"
+        "type": file_path.suffix[1:] if file_path.suffix else "unknown",
+        "mcp":mcp
     }
 
 
@@ -114,7 +118,7 @@ async def list_data_files(platform: Optional[str] = None, file_type: Optional[st
 
 
 @router.get("/files/{file_path:path}")
-async def get_file_content(file_path: str, preview: bool = True, limit: int = Query(default=100, ge=1, le=1000)):
+async def get_file_content(file_path: str, preview: bool = True, limit: int = Query(default=100, ge=1, le=1000), offset: int=Query(0,ge=0), raw: bool=False):
     """Get file content or preview"""
     full_path = DATA_DIR / file_path
 
@@ -136,6 +140,9 @@ async def get_file_content(file_path: str, preview: bool = True, limit: int = Qu
             if full_path.suffix == ".json":
                 with open(full_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                    if full_path.parent.name=='redfox' and isinstance(data,list) and len(data)==1 and isinstance(data[0],dict) and not raw:
+                        from api.services.redfox_preview import preview_export
+                        return preview_export(data[0],full_path.parent.parent.name,offset,limit)
                     if isinstance(data, list):
                         return {"data": data[:limit], "total": len(data)}
                     return {"data": [data], "total": 1}

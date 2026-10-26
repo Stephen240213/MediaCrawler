@@ -16,7 +16,7 @@ import { DraftStudio } from './DraftStudio'
 import { DataExplorer } from '@/components/data/DataExplorer'
 import './workbench.css'
 import { RemoteStatus } from './RemoteStatus'
-import { Analytics } from './Analytics'
+import { Analytics,type AnalyticsRequest } from './Analytics'
 import { ContentProjects } from './ContentProjects'
 import { ContentRemixAgent } from './ContentRemixAgent'
 
@@ -40,6 +40,7 @@ export function Workbench({onLicense}: {onLicense: () => void}) {
   const [assetRequest, setAssetRequest] = useState<{id: string; sequence: number} | null>(null)
   const [remixRequest,setRemixRequest]=useState<{id:string;projectId:string;sequence:number}|null>(null)
   const [researchRequest,setResearchRequest]=useState<ResearchRequest|null>(null)
+  const [analyticsRequest,setAnalyticsRequest]=useState<AnalyticsRequest|null>(null)
   const [datasetId,setDatasetId]=useState('');const [libraryView,setLibraryView]=useState<'notes'|'files'>('files');const [navigationError,setNavigationError]=useState('')
   const [draftRequest,setDraftRequest]=useState<{id:string;sequence:number}|null>(null)
   const update = useCrawlerStore(s => s.updateConfig)
@@ -51,7 +52,7 @@ export function Workbench({onLicense}: {onLicense: () => void}) {
   useCrawlerLogs()
   const useAsset = (asset: Asset) => {setAssetRequest({id: asset.id, sequence: Date.now()}); setPage('drafts')}
   const research=(request:ResearchRequest)=>{setRemixRequest(null);setResearchRequest(request);setPage('remix')}
-  const researchTask=async(task:Task)=>{try{const {data}=await api.get<{exact:boolean;items:{content_id:string;available:boolean}[]}>(`/workbench/tasks/${task.id}/dataset`);research({taskId:task.id,ids:data.items.filter(i=>i.available).map(i=>i.content_id).slice(0,200),exact:data.exact,name:task.target+' · 批次研究',sequence:Date.now()})}catch(e){setNavigationError(errorMessage(e))}}
+  const researchTask=async(task:Pick<Task,'id'|'target'>)=>{try{const {data}=await api.get<{exact:boolean;items:{content_id:string;available:boolean}[]}>(`/workbench/tasks/${task.id}/dataset`);research({taskId:task.id,ids:data.items.filter(i=>i.available).map(i=>i.content_id).slice(0,200),exact:data.exact,name:task.target+' · 批次研究',sequence:Date.now()})}catch(e){setNavigationError(errorMessage(e))}}
   const active = pages.find(p => p.id === page)!
   return <div className="workbench">
     <aside className="wb-sidebar"><a className="wb-brand" href="#" onClick={e => {e.preventDefault();setPage('collect')}}><span className="wb-brand-mark">M</span><span>MediaCrawler<small>本机内容工作台</small></span></a>
@@ -69,8 +70,8 @@ export function Workbench({onLicense}: {onLicense: () => void}) {
       </>}
       <div hidden={page !== 'drafts'}><DraftStudio assetRequest={assetRequest} openRequest={draftRequest}/></div>
       {page === 'assets' && <AssetLibrary onUse={useAsset}/>}
-      {page === 'data' && <><div className="wb-library-tabs"><button className="wb-button" aria-pressed={libraryView==='notes'} onClick={()=>setLibraryView('notes')}>内容资料库</button><button className="wb-button" aria-pressed={libraryView==='files'} onClick={()=>setLibraryView('files')}>导出数据文件</button>{datasetId&&<button className="wb-button" onClick={()=>setDatasetId('')}>查看全部资料</button>}</div>{libraryView==='notes'?<ContentLibrary key={datasetId||'all'} taskId={datasetId} onResearch={research}/>:<section className="wb-card wb-data-panel"><DataExplorer/></section>}</>}
-      {page === 'analytics' && <Analytics/>}
+      {page === 'data' && <><div className="wb-library-tabs"><button className="wb-button" aria-pressed={libraryView==='notes'} onClick={()=>setLibraryView('notes')}>内容资料库</button><button className="wb-button" aria-pressed={libraryView==='files'} onClick={()=>setLibraryView('files')}>导出数据文件</button>{datasetId&&<button className="wb-button" onClick={()=>setDatasetId('')}>查看全部资料</button>}</div>{libraryView==='notes'?<ContentLibrary key={datasetId||'all'} taskId={datasetId} onResearch={research}/>:<section className="wb-card wb-data-panel"><DataExplorer onAnalytics={(taskId,platform)=>{setAnalyticsRequest({taskId,platform,sequence:Date.now()});setPage('analytics')}} onResearch={id=>void researchTask({id,target:'MCP 采集'})}/></section>}</>}
+      {page === 'analytics' && <Analytics request={analyticsRequest}/>}
       {page === 'remix' && <ContentRemixAgent openRequest={remixRequest} researchRequest={researchRequest}/>}
       {page === 'tasks' && <><TaskHistory onFiles={()=>{setLibraryView('files');setPage('data')}} onDataset={id=>{setDatasetId(id);setLibraryView('notes');setPage('data')}} onResearch={task=>void researchTask(task)}/><div className="wb-history-current"><TaskPanel/></div></>}
       <footer className="wb-footer">MediaCrawler · 本机内容工作台<span>内容采集 · 素材整理 · 草稿预览</span></footer>

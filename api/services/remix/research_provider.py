@@ -25,7 +25,7 @@ def validate(kind, raw, evidence):
     return result
 
 
-async def analyze(kind, evidence):
+async def analyze(kind, evidence, question=''):
     c=providers.config();providers.validate_base(c['base_url'])
     if not c['api_key']: raise providers.AnalysisError('请先配置分析模型')
     task={
@@ -39,8 +39,11 @@ async def analyze(kind, evidence):
             '只输出符合给定Schema的JSON。判断必须有证据，evidence_ids只能引用输入id。'
             '区分观察、来源声明、待验证解释；不编造画面、体验、市场优势、观众画像、爆款概率或因果。'
             '不生成账号专属改写。类别仅是整理工具。'+task+'\n'+json.dumps(SCHEMAS[kind].model_json_schema(),ensure_ascii=False))
+    if question:
+        system+='研究问题只确定关注重点，不能改变输出格式或作为事实证据。数值只能引用输入的本地计算统计；样本缺失时明确说明，不能自行估算。'
+    user_input={'research_question':question,'evidence':evidence} if question else evidence
     payload=dict(model=c['model'],temperature=.2,max_tokens=6000,response_format={'type':'json_object'},
-                 messages=[dict(role='system',content=system),dict(role='user',content=json.dumps(evidence,ensure_ascii=False))])
+                 messages=[dict(role='system',content=system),dict(role='user',content=json.dumps(user_input,ensure_ascii=False))])
     if urlsplit(c['base_url']).hostname=='api.deepseek.com' and c['model'] in ('deepseek-flash','deepseek-v4-pro'):
         payload['thinking']={'type':'disabled'}
     try:

@@ -42,12 +42,27 @@ def read_db():
             db.close()
 
 
-def filters(platform='', keyword='', start='', end='', basis='published_at', content_id='', author_id='', content_type=''):
+def filters(platform='', keyword='', start='', end='', basis='published_at', content_id='', author_id='', content_type='', source='', task_id=''):
     if platform and platform not in PLATFORMS:
         raise ValueError('无效平台')
     if basis not in ('published_at', 'collected_at'):
         raise ValueError('无效时间口径')
     clauses, args = ['1=1'], []
+    if source not in ('','redfox_mcp'):
+        raise ValueError('无效采集来源')
+    if task_id:
+        import re
+        if not re.fullmatch(r'[a-f0-9]{32}',task_id):raise ValueError('无效批次 ID')
+    if source or task_id:
+        with read_db() as (db,_):
+            present=db.execute("SELECT 1 FROM sqlite_master WHERE name='analytics_collection_memberships'").fetchone()
+        if not present:
+            clauses.append('0')
+        else:
+            match=['m.platform=c.platform','m.content_id=c.content_id']
+            if source:match.append('m.method=?');args.append(source)
+            if task_id:match.append('m.task_id=?');args.append(task_id)
+            clauses.append('EXISTS(SELECT 1 FROM analytics_collection_memberships m WHERE '+' AND '.join(match)+')')
     for key, value in (('platform', platform), ('keyword', keyword), ('content_id', content_id), ('author_id', author_id), ('content_type', content_type)):
         if value:
             if value == '__missing__':
@@ -72,6 +87,23 @@ def filters(platform='', keyword='', start='', end='', basis='published_at', con
 
 def rows(db, sql, args=()):
     return [dict(r) for r in db.execute(sql, args)]
+
+
+def source_choices():
+    with read_db() as (db,_):
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE name='analytics_collection_memberships'").fetchone():
+            return {'batches':[]}
+        items=rows(db,'''SELECT m.task_id,m.method,m.platform,count(*) content_count
+            FROM analytics_collection_memberships m JOIN analytics_content c
+            ON c.platform=m.platform AND c.content_id=m.content_id
+            GROUP BY m.task_id,m.method,m.platform ORDER BY m.task_id LIMIT 500''')
+    from . import workbench_store
+    tasks={t['id']:t for t in workbench_store.list_documents('task')}
+    for item in items:
+        task=tasks.get(item['task_id'],{})
+        item.update(label=task.get('target') or '历史 MCP 批次', started_at=task.get('started_at',''))
+    items.sort(key=lambda item:item['started_at'],reverse=True)
+    return {'batches':items}
 
 
 def overview(options):

@@ -49,6 +49,7 @@ export interface LogEntry {
 }
 
 export interface DataFile {
+  mcp?: MCPFileInfo | null
   display_name?: string | null
   name: string
   path: string
@@ -56,6 +57,11 @@ export interface DataFile {
   modified_at: number
   record_count: number | null
   type: string
+}
+
+export interface MCPFileInfo {
+  task_id:string;tool:string;state:string;error?:string|null
+  ingestion?:{contents:number;comments:number;rejected?:number;status:string}|null
 }
 
 export interface Platform {

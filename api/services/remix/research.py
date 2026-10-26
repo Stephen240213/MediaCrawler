@@ -223,6 +223,25 @@ def _snapshot(space):
     return items
 
 
+def local_statistics(sources):
+    """Fixed calculations over the selected saved scope, never model-generated SQL."""
+    import statistics
+    metrics={}
+    for key in ('likes','favorites','comments','shares'):
+        values=[s.get(key) for s in sources if s.get(key) is not None]
+        metrics[key]=dict(known=len(values),missing=len(sources)-len(values),total=sum(values),
+                          median=statistics.median(values) if values else None)
+    return dict(contents=len(sources),body_available=sum(bool(s.get('body_available')) for s in sources),
+                saved_comments=sum(s.get('saved_comments',0) for s in sources),
+                sampled_comments=sum(len(s.get('comment_evidence',[])) for s in sources),metrics=metrics,
+                note='仅当前选定的本机资料；平台评论数不等于已采集评论数。未知指标不补零，统计不代表总体市场或因果。')
+
+
+def preview_scope(payload):
+    sources=_snapshot(payload.model_dump())
+    return local_statistics(sources)
+
+
 def revisions(space_id):
     """Only the latest full snapshot; history lists read lightweight headers."""
     with store.connect() as db: rows=db.execute('SELECT body FROM research_revisions WHERE space_id=? ORDER BY rowid DESC LIMIT 1',(space_id,)).fetchall()
@@ -266,8 +285,10 @@ def plan(space_id,full=False):
     # Fixed hash shards keep insertions from re-paging every category. Each
     # occupied source shard can contribute to at most six category syntheses.
     upper=counts['material_pending']+sum(bool(s['pending_comments']) for s in sources)+len({digest(s['source_key'])[0] for s in sources})*len(CATEGORIES)
-    same_inputs=previous and previous['config']=={k:v for k,v in config.items() if k!='endpoint'} and len(old)==len(sources) and all(
+    same_inputs=previous and previous.get('space',{}).get('question','')==space.get('question','') and previous['config']=={k:v for k,v in config.items() if k!='endpoint'} and len(old)==len(sources) and all(
         (before:=old.get(s['source_key'])) and all(before.get(k)==s.get(k) for k in ('version_id','comments_hash','account_id','published_at')) for s in sources)
+    if same_inputs and space.get('question','').strip():
+        same_inputs=any(e['id']=='stats:'+digest(local_statistics(sources)) for e in previous.get('evidence',[]))
     if same_inputs and not counts['material_pending'] and not counts['comment_pending'] and previous['status']=='completed': upper=0
     token=digest([space,config,sources,(previous or {}).get('id')])
     value=dict(space=space,plan_token=token,counts=dict(counts),items=items,removed=removed,total=len(sources),
@@ -329,7 +350,7 @@ def public_run(run):
 class BudgetReached(Exception): pass
 
 
-async def _call(run_id,kind,evidence,key):
+async def _call(run_id,kind,evidence,key,question=''):
     hit=cached(key)
     if hit: return hit['result']
     run=run_get(run_id)
@@ -338,7 +359,7 @@ async def _call(run_id,kind,evidence,key):
     call=dict(kind=kind,key=key,status='started',started_at=store.now())
     calls=run['calls']+[call];update_run(run_id,calls=calls)
     try:
-        result,usage,model_name=await model.analyze(kind,evidence)
+        result,usage,model_name=await model.analyze(kind,evidence,question=question) if question else await model.analyze(kind,evidence)
         result=model.validate(kind,result,evidence)
         put_cache(key,dict(result=result,usage=usage,model=model_name))
         calls[-1].update(status='completed',usage=usage,model=model_name)
@@ -420,11 +441,20 @@ async def execute(run_id):
         merged={}
         for u in units: merged.setdefault(u['id'],[]).append(u['text'])
         units=[dict(id=k,text='\n'.join(v)) for k,v in sorted(merged.items())]
-        key=cache_key('synthesis',[p['space']['kind'],category,bucket,units],config)
+        question=p['space'].get('question','').strip()
+        if question:
+            stats=local_statistics(p['sources'])
+            stat_id='stats:'+digest(stats)
+            unit=dict(id=stat_id,text=encode(stats),kind='computed_statistics',source_key='本地选定范围')
+            units.append(dict(id=stat_id,text=unit['text']))
+            evidence[stat_id]=unit
+        synthesis_inputs=[p['space']['kind'],category,bucket,units]
+        if question:synthesis_inputs.append(question)
+        key=cache_key('synthesis',synthesis_inputs,config)
         group=dict(id=category+':'+bucket,category=category,bucket=bucket,asset_count=len(group_assets),synthesized_assets=len(included),
                    source_count=len({a['source_key'] for a in group_assets}),comment_count=len({eid for a in group_assets for eid in a['evidence_ids'] if eid.startswith('c:')}),
                    status='completed',cache_hit=bool(cached(key)),result=None)
-        try: group['result']=await _call(run_id,p['space']['kind'],units,key)
+        try: group['result']=await _call(run_id,p['space']['kind'],units,key,question=question)
         except BudgetReached: group.update(status='pending',error='达到调用上限，综合待下一轮')
         except Exception as exc: group.update(status='failed',error=str(exc)[:300] if isinstance(exc,providers.AnalysisError) else '分组综合失败')
         if group['status']=='completed' and len(included)<len(group_assets):

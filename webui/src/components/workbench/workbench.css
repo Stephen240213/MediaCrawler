@@ -1708,6 +1708,16 @@
 .wb-file-preview {margin-top:24px;padding:20px;border:1px solid #e9e0f3;border-radius:12px;background:#fcfaff;min-width:0}
 .wb-file-preview h3 {font-size:14px;overflow-wrap:anywhere;min-width:0}
 .wb-file-preview pre {font-size:12px;max-height:400px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;color:#85718e}
+.wb-file-dialog {width:min(1000px,94vw);max-height:90vh;overflow:auto;border:1px solid #e9e0f3;border-radius:14px;padding:0;color:#554366;background:white}
+.wb-file-dialog::backdrop {background:#21133166}
+.wb-file-dialog .wb-file-preview {margin:0;border:0}
+.wb-file-dialog .wb-files-heading {position:sticky;top:0;background:white;padding-bottom:14px;z-index:1}
+.wb-file-dialog .wb-files-heading p {font-size:11px;overflow-wrap:anywhere}
+.wb-preview-note {border-top:1px solid #eee7f5;padding:16px 0;font-size:12px}
+.wb-preview-note h3 {font-size:15px}.wb-preview-body {white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.8}
+.research-directions {margin:16px 0;padding:16px;border:1px solid #e9e0f3;border-radius:12px;background:#fcfaff}
+.research-direction-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}
+#research-execution-plan {scroll-margin-top:90px}
 @media(max-width:1100px){.wb-file-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wb-picker-toolbar{grid-template-columns:1fr 1fr}.wb-picker-toolbar>label:first-child{grid-column:1/-1}}
 @media(max-width:600px){.wb-file-grid{grid-template-columns:minmax(0,1fr)}.wb-files-heading{align-items:flex-start}.wb-files-heading h2{font-size:18px}.wb-files-summary strong{font-size:18px}.wb-files-summary>div{padding:0 12px}.wb-files-toolbar{display:grid}.wb-files-tabs button{padding:8px}.wb-picker-toolbar{grid-template-columns:minmax(0,1fr)}.wb-picker-rows .wb-picker-row{padding:12px 10px}.wb-picker-row .wb-picker-metrics{display:none}.wb-library-footer{align-items:flex-start;flex-direction:column}.wb-library>.wb-source-picker,.wb-library-footer{padding:16px}.wb-dataset-summary{margin:16px 16px 0}}
 .workbench .wb-files-search {display:flex;align-items:center;gap:8px;height:40px;min-width:210px;padding:9px 12px}

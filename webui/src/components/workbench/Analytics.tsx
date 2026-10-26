@@ -1,5 +1,5 @@
 import { useSession, canOperate } from '@/lib/session'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
 import './analytics.css'
@@ -38,10 +38,15 @@ function WordCloud({points, onSelect}: {points: Point[]; onSelect: (p: Point) =>
   </section>
 }
 
-export function Analytics() {
+export type AnalyticsRequest={taskId:string;platform:string;sequence:number}
+export function Analytics({request}:{request?:AnalyticsRequest|null}) {
   const writable = canOperate(useSession())
   const cache = useQueryClient()
   const [platform, setPlatform] = useState('')
+  const [source,setSource]=useState(request?'redfox_mcp':'')
+  const [taskId,setTaskId]=useState(request?.taskId||'')
+  const choices=useQuery({queryKey:['analytics','sources'],queryFn:async()=>(await api.get<{batches:{task_id:string;platform:string;label:string;started_at:string;content_count:number}[]}>('/analytics/sources')).data})
+  useEffect(()=>{if(request){setSource('redfox_mcp');setTaskId(request.taskId);setPlatform(request.platform);setKeyword('');setStart('');setEnd('');setDrill({content_id:'',author_id:'',content_type:''});setPage(1)}},[request?.sequence])
   const [keyword, setKeyword] = useState('')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
@@ -61,7 +66,7 @@ export function Analytics() {
   const [result, setResult] = useState<ImportResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
-  const options = {platform, keyword, start, end, basis, ...drill}
+  const options = {platform, keyword, start, end, basis, source, task_id:taskId, ...drill}
   const overview = useQuery({queryKey: ['analytics', 'overview', options], queryFn: async () => (await api.get<Overview>('/analytics/overview', {params: options})).data, retry: false})
   const details = useQuery({queryKey: ['analytics', 'details', options, page, kind, sort, word, commentDate, commentCode], queryFn: async () => (await api.get<{items: Content[]; total: number}>('/analytics/details', {params: {...options, page, kind, sort, word, comment_date: commentDate, comment_code: commentCode}})).data, retry: false})
   const history = useQuery({queryKey: ['analytics', 'history', selected?.platform, selected?.content_id], queryFn: async () => (await api.get<History>('/analytics/history', {params: {platform: selected?.platform, content_id: selected?.content_id}})).data, enabled: !!selected, retry: false})
@@ -103,17 +108,19 @@ export function Analytics() {
   const data = overview.data
   const summary = data?.summary
   const timeDrill = (key: string, p: Point) => {setBasis(key); setStart(p.label); setEnd(p.label); resetPage()}
-  const reset = () => {setPlatform(''); setKeyword(''); setStart(''); setEnd(''); setBasis('published_at'); setDrill({content_id: '', author_id: '', content_type: ''}); setWord(''); setCommentCode(''); setCommentDate(''); resetPage()}
+  const reset = () => {setSource('');setTaskId('');setPlatform(''); setKeyword(''); setStart(''); setEnd(''); setBasis('published_at'); setDrill({content_id: '', author_id: '', content_type: ''}); setWord(''); setCommentCode(''); setCommentDate(''); resetPage()}
   return <div className="analytics">
     <section className="wb-card an-filter"><div className="an-heading"><h2>SQLite 数据分析</h2><button className="wb-button" onClick={() => {void refresh()}}>刷新数据</button></div>
       <div className="an-filter-grid">
-        <label>平台<select value={platform} onChange={e => {setPlatform(e.target.value); resetPage()}}><option value="">全部平台</option>{Object.entries(platforms).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+        <label>采集来源<select aria-label="采集来源" value={source} onChange={e=>{setSource(e.target.value);setTaskId('');resetPage()}}><option value="">全部已保存数据</option><option value="redfox_mcp">RedFox MCP</option></select></label>
+        <label>采集批次<select aria-label="分析采集批次" value={taskId} onChange={e=>{setTaskId(e.target.value);if(e.target.value)setSource('redfox_mcp');resetPage()}}><option value="">全部符合来源的批次</option>{choices.data?.batches.filter(b=>!platform||b.platform===platform).map(b=><option key={b.task_id} value={b.task_id}>{b.label} · {b.started_at?new Date(b.started_at).toLocaleString('zh-CN'):b.task_id.slice(0,8)} · {b.content_count} 条</option>)}{taskId&&!choices.data?.batches.some(b=>b.task_id===taskId)&&<option value={taskId}>批次 {taskId.slice(0,8)}</option>}</select></label>
+        <label>平台<select value={platform} onChange={e => {setPlatform(e.target.value);setTaskId(''); resetPage()}}><option value="">全部平台</option>{Object.entries(platforms).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
         <label>关键词（精确匹配）<input list="analytics-keywords" value={keyword === '__missing__' ? '' : keyword} placeholder={keyword === '__missing__' ? '仅未提供关键词' : '全部关键词'} onChange={e => {setKeyword(e.target.value); resetPage()}}/><datalist id="analytics-keywords">{data?.keywords.map(k => <option key={k.keyword} value={k.keyword}/>)}</datalist></label>
         <label>日期范围口径<select value={basis} onChange={e => {setBasis(e.target.value); resetPage()}}><option value="published_at">内容发布时间</option><option value="collected_at">最近采集时间</option></select></label>
         <label>开始日期<input type="date" value={start} onChange={e => {setStart(e.target.value); resetPage()}}/></label>
         <label>结束日期<input type="date" value={end} onChange={e => {setEnd(e.target.value); resetPage()}}/></label>
       </div><div className="an-actions"><button className="wb-button" onClick={reset}>清除筛选与明细定位</button><button className="wb-button" disabled={busy || !data?.ready} onClick={() => void exportFile('csv')}>导出 CSV</button><button className="wb-button" disabled={busy || !data?.ready} onClick={() => void exportFile('xlsx')}>导出 Excel</button></div>
-      <p className="an-muted">日期均为北京时间（UTC+8）。发布时间反映内容发布，采集时间反映每条内容最近一次采集；当前日期筛选同时作用于所有面板。导出当前内容筛选，不包含评论文本筛选。</p>
+      <p className="an-muted">MCP 来源和批次按已保存的精确成员筛选，同一内容可属于多个批次，当前统计仍按内容 ID 去重。指标展示资料库当前版本，不是历史快照。日期均为北京时间（UTC+8）。发布时间反映内容发布，采集时间反映每条内容最近一次采集；当前日期筛选同时作用于所有面板。导出当前内容筛选，不包含评论文本筛选。</p>
       {(drill.author_id || drill.content_id || drill.content_type || word) && <p className="an-selection">明细定位：{drill.content_id && `内容 ${drill.content_id} `}{drill.author_id && '已选作者 '}{drill.content_type && `类型 ${drill.content_type === '__missing__' ? '未提供' : drill.content_type} `}{word && `评论包含「${word}」`}</p>}
     </section>
     {notice && <p role="status" className="an-notice">{notice}</p>}

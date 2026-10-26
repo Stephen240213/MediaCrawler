@@ -15,14 +15,20 @@ router = APIRouter(prefix='/analytics', tags=['analytics'])
 
 def selection(platform: str = '', keyword: str = Query('', max_length=500), start: str = '', end: str = '',
               basis: Literal['published_at', 'collected_at'] = 'published_at',
-              content_id: str = '', author_id: str = '', content_type: str = ''):
+              content_id: str = '', author_id: str = '', content_type: str = '',
+              source: Literal['','redfox_mcp']='',task_id: str=Query('',pattern=r'^([a-f0-9]{32})?$')):
     options = dict(platform=platform, keyword=keyword, start=start, end=end, basis=basis,
-                   content_id=content_id, author_id=author_id, content_type=content_type)
+                   content_id=content_id, author_id=author_id, content_type=content_type,source=source,task_id=task_id)
     try:
         service.filters(**options)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return options
+
+
+@router.get('/sources')
+def sources():
+    return service.source_choices()
 
 
 @router.get('/overview')

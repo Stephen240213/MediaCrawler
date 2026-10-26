@@ -16,6 +16,14 @@
 
 旧 JSON 可在「数据文件 → 导出数据文件 → MCP 结果」点击「同步到分析」。此操作只处理本机文件，不请求 RedFox 或调用分析模型。无效结构显示拒绝与警告，不生成虚构内容。MCP 的 `isError=false` 仅代表协议层状态；仍检查 `structuredContent` 和文本 JSON 内部业务码/错误。失败响应不导入统计，旧版误标成功的任务会在本地同步时改为失败；原文件继续保留。
 
+文件卡片显示解包后的实际记录数和同步状态。点击「预览」会在当前视图打开弹窗，按每页20条展示标题、正文摘要、内容 ID 和互动数据，可切换原始 JSON；无需滚动到文件列表底部。同步反馈直接显示在相应卡片旁。已入库的内容可通过「查看数据分析」「AI 研究」直接定位到该批次。
+
+数据分析增加「采集来源」「采集批次」选择。MCP 批次归属独立保存在 `analytics_collection_memberships`，不依赖关键词。一个内容可属于多个批次，来源汇总按平台和内容 ID 去重；筛选同时用于趋势、互动、评论明细和导出。展示资料库当前版本，不宣称历史冻结快照。升级前的 MCP 文件再同步一次即可补齐该关联，原导入账本仍会阻止重复写入内容和互动快照。
+
+AI 研究提供四个初始方向：爆款表达拆解、用户需求与痛点、选题机会、互动与样本对比。也可以填写自然语言研究问题。点击「查看本地统计」直接计算当前选定资料的内容数、正文覆盖、已保存评论，以及互动已知数、缺失数、合计和中位数；不要求先保存研究范围，不调用模型、不生成任意 SQL。平台评论总数与已采集评论正文分别展示。
+
+点击「保存并查看 AI 执行计划」后，页面定位到模型调用上限和发送确认框，用户确认后才会执行已有模型 API。自然语言问题作用于综合研究，并携带本地计算统计作为可引用证据；中性正文和评论理解仍可复用缓存，修改问题只重新综合。资料范围仍由选择的资料、批次或明确规则决定，问题不会自动触发搜索、扩展范围或付费调用。研究结果有界且可能分组或因预算部分完成，不是无限制的数据聊天。
+
 黑马榜 `category` 使用官方列出的 25 个中文分类下拉选项（旅游相关为「旅行度假」），并在后端校验。服务返回分类错误时显示具体业务码与说明，不自动替换分类或重试。参数与字段映射参考 [RedFox 黑马榜接口规范](https://github.com/redfox-data/redfox-community/blob/main/skills/xiaohongshu-darkhorse/references/api-spec.md)、[小红书作品搜索](https://redfox.hk/apis/xiaohongshu/384C6W6B)、[抖音作品搜索](https://redfox.hk/apis/douyin/774OBKK0) 以及官方 X / YouTube 评论格式说明。未知结构保留文件并报告，不能以本地模拟测试代替真实服务数据结构确认。
 
 日期字段使用日期选择器并在本机校验格式。黑马榜文档标称最长回溯 30 天，但官方说明部分格式正确的日期也会被报为“日期格式错误”，可能涉及数据断档或服务窗口。工作台采用保守策略：按上海日期允许 1–29 天前，避开第 30 天边界和尚未更新的当天；这不是对服务真实可用窗口的保证。建议日期为 7 天前，可点击按钮仅填写日期，再手动执行。范围内仍被拒绝时，会展示提交日期和服务端问题提示，不自动换日期或重试。例：2026-10-26 的提交范围为 2026-09-27 至 2026-10-25，建议日期 2026-10-19。
@@ -23,9 +31,9 @@
 仅针对 MCP 的本机验证命令：
 
 ```sh
-uv run --frozen pytest tests/test_redfox_dates.py tests/test_redfox.py tests/test_redfox_ingest.py tests/test_analytics.py tests/test_content_remix.py tests/test_remix_research.py -q
+uv run --frozen pytest tests/test_redfox_dates.py tests/test_redfox.py tests/test_redfox_ingest.py tests/test_mcp_analysis_flow.py tests/test_analytics.py tests/test_content_remix.py tests/test_remix_research.py -q
 npm --prefix webui run build
-uv run --frozen pytest tests/test_redfox_browser.py -q
+uv run --frozen pytest tests/test_mcp_analysis_browser.py tests/test_redfox_browser.py tests/test_research_browser.py -q
 ```
 
 上述测试使用本地模拟响应，不执行真实平台采集。页面测试只检查 MCP 表单与请求，不执行浏览器采集。

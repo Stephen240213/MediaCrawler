@@ -128,6 +128,10 @@ def normalize(row, platform=None, kind='content'):
 
 
 SCHEMA = [
+    '''CREATE TABLE IF NOT EXISTS analytics_collection_memberships (
+    task_id TEXT NOT NULL, platform TEXT NOT NULL, content_id TEXT NOT NULL, method TEXT NOT NULL,
+    PRIMARY KEY(task_id,platform,content_id))''',
+    'CREATE INDEX IF NOT EXISTS analytics_collection_source ON analytics_collection_memberships(method,platform,content_id)',
     'CREATE TABLE IF NOT EXISTS analytics_meta(version INTEGER NOT NULL)',
     '''CREATE TABLE IF NOT EXISTS analytics_content (
     platform TEXT NOT NULL, content_id TEXT NOT NULL, author_id TEXT, author TEXT, keyword TEXT,

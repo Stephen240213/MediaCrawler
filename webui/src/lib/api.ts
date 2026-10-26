@@ -78,6 +78,7 @@ export interface LogEntry {
 }
 
 export interface DataFile {
+  mcp?: import('@/types/crawler').MCPFileInfo | null
   display_name?: string | null
   name: string
   path: string
@@ -88,6 +89,7 @@ export interface DataFile {
 }
 
 export interface FilePreviewResponse {
+  mcp?: import('@/types/crawler').MCPFileInfo
   data: Record<string, unknown>[]
   total: number
   columns?: string[]
