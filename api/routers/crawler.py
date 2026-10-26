@@ -27,6 +27,13 @@ from ..services import crawler_manager
 router = APIRouter(prefix="/crawler", tags=["crawler"])
 
 
+@router.get('/redfox/tools')
+async def redfox_tools():
+    """Local catalog only; does not call or charge the remote service."""
+    from ..services.redfox import TOOLS, PLATFORMS, credential
+    return {'tools': TOOLS, 'configured': {p: bool(credential(p)) for p in PLATFORMS}}
+
+
 @router.post("/start")
 async def start_crawler(request: CrawlerStartRequest, http_request: Request, idempotency_key: Optional[str] = Header(None, min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")):
     """Start crawler task"""

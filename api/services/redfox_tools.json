@@ -1,0 +1,850 @@
+[
+  {
+    "platform": "dy",
+    "name": "douyin_get_daily_hot_rank",
+    "description": "抖音每日热门作品榜（按点赞排名，日度收录）。type 为类别（如 二次元、美食，\n不传查全部）；start_time/end_time 格式 yyyy-MM-dd，不传默认昨日（每日 10 点后更新）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "end_time": {
+          "type": "string"
+        },
+        "start_time": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_get_daily_surge_rank",
+    "description": "抖音每日点赞飙升榜（单日新增点赞排名）。type 为分类（如 小剧场、财富理财，\n不传或\"全部\"查全部分类）；start_time 为榜单日期 yyyy-MM-dd，不传默认昨日（每日 16 点更新）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "start_time": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_get_hot_accounts",
+    "description": "抖音热门账号推荐（日/周/月榜）。date_type：days=日、weeks=周、months=月；\nrank_date 格式 yyyy-MM-dd（日榜传当日日期、周榜传周一日期、月榜传一号）；\ntype 为类别（如 全部、个人才艺、美食）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "date_type": {
+          "type": "string"
+        },
+        "rank_date": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "date_type",
+        "rank_date",
+        "type"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_get_user",
+    "description": "获取抖音账号信息（优质库）。account_id 为抖音账号 ID，\n支持 unique_id、short_id、uid 任一匹配。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "account_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "account_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_get_user_works",
+    "description": "获取抖音账号作品列表（优质库）。account_id（抖音号）/ author_url（主页链接）/\nsec_user_id 至少传一个；offset 每页 +20；sort_type：0=默认，2=最新，4=最热。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "account_id": {
+          "type": "string"
+        },
+        "author_url": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "number"
+        },
+        "sec_user_id": {
+          "type": "string"
+        },
+        "sort_type": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_get_user_works_wide",
+    "description": "获取抖音账号作品列表（广域库）。user_id（uid）/ unique_name（抖音号）/\nshort_id 三选一必填；page_num 从 1 开始，page_size 最大 50；\nstart_date/end_date 格式 yyyy-MM-dd。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "end_date": {
+          "type": "string"
+        },
+        "page_num": {
+          "type": "number"
+        },
+        "page_size": {
+          "type": "number"
+        },
+        "short_id": {
+          "type": "string"
+        },
+        "start_date": {
+          "type": "string"
+        },
+        "unique_name": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_get_weekly_surge_rank",
+    "description": "抖音七日点赞飙升榜（七日新增点赞排名）。type 为分类，不传或\"全部\"查全部分类；\nstart_time 为榜单日期 yyyy-MM-dd，不传默认昨日（每日 16:30 更新）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "start_time": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_get_work",
+    "description": "获取抖音作品详情（优质库）。work_id 与 work_url（作品链接）至少传一个，\n返回互动数据、作者信息等。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "work_id": {
+          "type": "string"
+        },
+        "work_url": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_get_work_wide",
+    "description": "获取抖音作品详情（广域库）。video_id 为作品 ID（对应 aweme_id，必填）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "video_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "video_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_search_accounts_wide",
+    "description": "搜索抖音账号（广域库）。keyword 必填（匹配账号名）；\npage_num 从 1 开始，page_size 最大 50。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string"
+        },
+        "page_num": {
+          "type": "number"
+        },
+        "page_size": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "keyword"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_search_ai_articles",
+    "description": "搜索抖音 AI 相关作品（优质库）。keyword 必填；\nstart_time/end_time 格式如 \"2026-06-01 00:00:00\"。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "end_time": {
+          "type": "string"
+        },
+        "keyword": {
+          "type": "string"
+        },
+        "page_num": {
+          "type": "number"
+        },
+        "page_size": {
+          "type": "number"
+        },
+        "start_time": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "keyword"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_search_articles",
+    "description": "搜索抖音作品（优质库）。keyword 必填；offset 分页偏移从 0 开始、每次 +20；\nsort_type 排序方式，如 \"default\"。返回含 total/hasMore/list。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "number"
+        },
+        "sort_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "keyword"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_search_users",
+    "description": "搜索抖音账号（优质库）。keyword 必填；offset 分页偏移从 0 开始。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "number"
+        },
+        "sort_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "keyword"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_search_works_wide",
+    "description": "搜索抖音作品（广域库，覆盖范围大于优质库）。keyword 必填（匹配作品正文）；\nstart_date/end_date 格式 yyyy-MM-dd；page_num 从 1 开始，page_size 最大 50。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "end_date": {
+          "type": "string"
+        },
+        "keyword": {
+          "type": "string"
+        },
+        "page_num": {
+          "type": "number"
+        },
+        "page_size": {
+          "type": "number"
+        },
+        "start_date": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "keyword"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_transcript",
+    "description": "提交抖音视频提文案任务（含带时间戳分句），立即返回 taskId，不自动查询结果。\nurl 为视频链接（支持口令分享文本）。请稍后用 douyin_transcript_result(task_id)\n自行查询结果。timeout_seconds 为可选参数，可传可不传，传与不传都不影响本调用\n（本工具只提交任务、不自动轮询结果）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "timeout_seconds": {
+          "type": "number"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "dy",
+    "name": "douyin_transcript_result",
+    "description": "查询抖音视频提文案任务结果。传 douyin_transcript 提交返回的 taskId。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "twitter",
+    "name": "twitter_get_comments",
+    "description": "获取 X(Twitter) 推文评论/回复。tweet_id 必填；cursor 用于翻页。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "type": "string"
+        },
+        "tweet_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tweet_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "twitter",
+    "name": "twitter_get_tweet",
+    "description": "获取 X(Twitter) 单条推文详情。tweet_id 为推文 ID（必填）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tweet_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tweet_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "twitter",
+    "name": "twitter_get_user",
+    "description": "获取 X(Twitter) 用户信息。screen_name 与 rest_id 至少传一个。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "rest_id": {
+          "type": "string"
+        },
+        "screen_name": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "twitter",
+    "name": "twitter_search_tweets",
+    "description": "X(Twitter) 关键词搜索推文。keyword 必填；\nsearch_type：Top/Latest/Media/People/Lists；cursor 用于翻页。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "type": "string"
+        },
+        "keyword": {
+          "type": "string"
+        },
+        "search_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "keyword"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_get_account",
+    "description": "获取小红书账号信息（优质库）。account_id 为小红书号（必填），user_id 可选。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "account_id": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "account_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_get_comments",
+    "description": "提交小红书笔记一级评论任务（广域库），立即返回 taskId，不自动查询结果。\nopus_id 为作品 id（笔记链接 explore/ 后的部分）；data_num 为所需条数，-1=全部。\n评论数据约 24 小时后才可见，请稍后用 xiaohongshu_get_comments_result(task_id)\n自行查询结果。timeout_seconds 为可选参数，可传可不传，传与不传都不影响本调用\n（本工具只提交任务、不再自动轮询结果）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "data_num": {
+          "type": "number"
+        },
+        "opus_id": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "data_num",
+        "opus_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_get_comments_result",
+    "description": "查询小红书评论任务结果。传 xiaohongshu_get_comments 提交返回的 taskId。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_get_daily_hot_rank",
+    "description": "小红书每日爆款笔记榜单。rank_date 为榜单日期 yyyy-MM-dd；\ncategory 为分类（如 综合全部、时尚穿搭、美味佳肴）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "rank_date": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "rank_date"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_get_dark_horse_notes",
+    "description": "小红书黑马爆文榜（低粉账号爆款笔记）。category 为分类（必填），\n取值如 综合全部、出行代步、医疗保健、时尚穿搭、美味佳肴 等中文分类名；\nstart_date 为榜单日期 yyyy-MM-dd（最长最近 30 天）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "start_date": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "start_date"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_get_hot_accounts",
+    "description": "小红书热门账号推荐（日/周/月榜）。date_type：1=日、2=周、3=月；\nrank_date 格式 yyyy-MM-dd（日榜传当日日期、周榜传周一日期、月榜传一号）；\ntype 为类别（如 综合全部）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "date_type": {
+          "type": "number"
+        },
+        "rank_date": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_get_user_works",
+    "description": "查询小红书账号作品列表（优质库）。red_id（小红书号）/ userid（账号主键 id）\n至少传一个；offset 从 0 开始、每页 +20；sort_type：_0=默认，_2=最新，_4=最热；\npublish_time_start/end 格式 yyyy-MM-dd。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "number"
+        },
+        "publish_time_end": {
+          "type": "string"
+        },
+        "publish_time_start": {
+          "type": "string"
+        },
+        "red_id": {
+          "type": "string"
+        },
+        "sort_type": {
+          "type": "string"
+        },
+        "userid": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_get_weekly_hot_rank",
+    "description": "小红书七日爆款笔记。rank_date 为榜单日期 yyyy-MM-dd（每天 19:00 更新昨日榜单）；\ncategory 为分类（如 综合全部、出行代步），均可不传。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "rank_date": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_get_work",
+    "description": "获取小红书笔记详情（优质库）。work_id 与 work_link（笔记链接）至少传一个。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "work_id": {
+          "type": "string"
+        },
+        "work_link": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_search_ai_articles",
+    "description": "搜索小红书 AI 创作相关笔记（优质库）。keyword 必填；\nstart_time/end_time 格式如 \"2026-06-01 00:00:00\"。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "end_time": {
+          "type": "string"
+        },
+        "keyword": {
+          "type": "string"
+        },
+        "page_num": {
+          "type": "number"
+        },
+        "page_size": {
+          "type": "number"
+        },
+        "start_time": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "keyword"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_search_articles",
+    "description": "搜索小红书笔记（优质库）。keyword 必填；offset 分页偏移。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "number"
+        },
+        "sort_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "keyword"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_search_hot_notes",
+    "description": "小红书爆款笔记洞察。keyword 可选，不传则按互动数降序返回最热门数据；\npage_num/page_size 在无关键词时生效（page_size 最大 50）；\nstart_date/end_date 格式 yyyy-MM-dd。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "end_date": {
+          "type": "string"
+        },
+        "keyword": {
+          "type": "string"
+        },
+        "page_num": {
+          "type": "number"
+        },
+        "page_size": {
+          "type": "number"
+        },
+        "start_date": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_search_users",
+    "description": "搜索小红书博主账号（优质库）。keyword 必填；offset 分页偏移。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "number"
+        },
+        "sort_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "keyword"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_transcript",
+    "description": "提交小红书视频提文案任务，立即返回 taskId，不自动查询结果。\nurl 为笔记/视频链接。请稍后用 xiaohongshu_transcript_result(task_id)\n自行查询结果。timeout_seconds 为可选参数，可传可不传，传与不传都不影响本调用\n（本工具只提交任务、不自动轮询结果）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "timeout_seconds": {
+          "type": "number"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "xhs",
+    "name": "xiaohongshu_transcript_result",
+    "description": "查询小红书视频提文案任务结果。传 xiaohongshu_transcript 提交返回的 taskId。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "youtube",
+    "name": "youtube_get_comments",
+    "description": "获取 YouTube 视频评论。video_id 必填；sort_by：top=最热/newest=最新；\ncontinuation_token 用于翻页。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "continuation_token": {
+          "type": "string"
+        },
+        "country_code": {
+          "type": "string"
+        },
+        "language_code": {
+          "type": "string"
+        },
+        "sort_by": {
+          "type": "string"
+        },
+        "video_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "video_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "youtube",
+    "name": "youtube_get_transcript",
+    "description": "提取 YouTube 视频字幕轨道。video_url 为视频链接（必填）。\n返回视频信息（标题、时长、发布时间、封面、描述）及各语言、各格式\n（srt/vtt/ttml/json3）的字幕下载地址，含人工字幕与自动生成字幕。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "video_url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "video_url"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "youtube",
+    "name": "youtube_get_video",
+    "description": "获取 YouTube 单个视频详情。video_id 为视频 ID（必填）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "video_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "video_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "platform": "youtube",
+    "name": "youtube_search_videos",
+    "description": "YouTube 关键词视频搜索。search_query 必填；continuation_token 用于翻页。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "continuation_token": {
+          "type": "string"
+        },
+        "search_query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "search_query"
+      ],
+      "additionalProperties": false
+    }
+  }
+]

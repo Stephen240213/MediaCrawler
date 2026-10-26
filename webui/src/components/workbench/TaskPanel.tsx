@@ -8,6 +8,9 @@ import { useCrawlerStatus } from '@/hooks/useCrawler'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { workbenchApi, platformNames, modeNames, outcomeNames } from '@/lib/workbench'
 
+const taskPlatforms: Record<string, string> = {...platformNames, twitter:'X / Twitter', youtube:'YouTube'}
+const taskMode = (task: Task) => task.collection_method === 'redfox_mcp' ? `RedFox MCP · ${task.mcp_tool || ''}` : modeNames[task.crawler_type]
+
 export function TaskPanel() {
   const {data, isError} = useCrawlerStatus()
   const logs = useCrawlerStore(s => s.logs)
@@ -17,9 +20,9 @@ export function TaskPanel() {
   const finished = !!task && !running && task.outcome !== 'running'
   const elapsed = task ? Math.max(0, Math.floor(((task.finished_at ? new Date(task.finished_at).getTime() : Date.now()) - new Date(task.started_at).getTime()) / 1000)) : 0
   let steps = [
-    {title: '提交采集参数', detail: task ? `${platformNames[task.platform]} · ${modeNames[task.crawler_type]}` : '等待创建任务', done: !!task},
-    {title: '浏览器执行', detail: running ? '登录、采集与保存的实际情况请查看日志' : task ? (task.outcome === 'interrupted' ? '服务中断，请在采集电脑确认是否存在遗留进程' : '进程已结束') : '沿用现有浏览器执行方式', done: finished},
-    {title: '任务结果', detail: task ? outcomeNames[task.outcome] : '完成后可前往数据与素材查看', done: finished},
+    {title: '提交采集参数', detail: task ? `${taskPlatforms[task.platform]} · ${taskMode(task)}` : '等待创建任务', done: !!task},
+    {title: task?.collection_method === 'redfox_mcp' ? 'MCP 服务执行' : '浏览器执行', detail: running ? '采集与保存的实际情况请查看日志' : task ? (task.outcome === 'interrupted' ? '服务中断，请在采集电脑确认是否存在遗留进程' : '进程已结束') : '沿用现有浏览器执行方式', done: finished},
+    {title: '任务结果', detail: task ? (task.collection_method === 'redfox_mcp' && task.outcome === 'completed' ? '本次工具调用与 JSON 保存完成；远程异步任务请另行查询' : outcomeNames[task.outcome]) : '完成后可前往数据与素材查看', done: finished},
   ]
   const progress = task?.progress
   const labels: Record<string,string> = {opening: '打开搜索页', searching: '输入关键词', filtering: '应用筛选', verifying: '校验筛选', collecting: '收集搜索结果', details: '采集详情与评论', saving: '保存结果', finished: '完成', failed: '执行中断'}
@@ -38,12 +41,12 @@ export function TaskPanel() {
       {data?.error_message && <p className="wb-error" role="alert"><AlertCircle size={15}/>{data.error_message}</p>}
       <p className="wb-hint">进度依据真实进程状态展示；日志每 5 秒补取，网络断开不会主动停止电脑上的任务。</p>
       <div className="wb-log-heading"><strong>执行日志</strong><button type="button" onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '展开'}</button></div>
-      <div className={`wb-live-logs ${expanded ? 'expanded' : ''}`} aria-label="执行日志">{logs.length ? logs.slice(expanded ? -500 : -8).map(log => <div key={log.id} className={`log-${log.level}`}><time title={log.timestamp}>{log.timestamp.includes('T') ? new Date(log.timestamp).toLocaleTimeString('zh-CN', {hour12: false}) : log.timestamp}</time><span>{log.message}</span></div>) : <p>执行后将在此显示浏览器与采集日志。</p>}</div>
+      <div className={`wb-live-logs ${expanded ? 'expanded' : ''}`} aria-label="执行日志">{logs.length ? logs.slice(expanded ? -500 : -8).map(log => <div key={log.id} className={`log-${log.level}`}><time title={log.timestamp}>{log.timestamp.includes('T') ? new Date(log.timestamp).toLocaleTimeString('zh-CN', {hour12: false}) : log.timestamp}</time><span>{log.message}</span></div>) : <p>执行后将在此显示采集日志。</p>}</div>
     </div>
   </section>
 }
 
-export function TaskHistory({onDataset,onResearch}:{onDataset?:(id:string)=>void;onResearch?:(task:Task)=>void}) {
+export function TaskHistory({onDataset,onResearch,onFiles}:{onFiles?:()=>void;onDataset?:(id:string)=>void;onResearch?:(task:Task)=>void}) {
   const writable = canOperate(useSession())
   const [deleting, setDeleting] = useState('')
   const [error, setError] = useState('')
@@ -54,6 +57,6 @@ export function TaskHistory({onDataset,onResearch}:{onDataset?:(id:string)=>void
   }
   const {data = [], isLoading, isError, refetch} = useQuery({queryKey: ['workbenchTasks'], queryFn: workbenchApi.tasks, refetchInterval: 3000})
   return <section className="wb-card"><div className="wb-card-heading"><h2>任务记录</h2><button className="wb-button" onClick={() => refetch()}>刷新</button></div><div className="wb-table-wrap">
-    {error && <p role="alert" className="wb-error">{error}</p>}{isError ? <p role="alert" className="wb-empty">任务记录加载失败，请刷新重试。</p> : !data.length ? <div className="wb-empty"><Clock3/><h3>{isLoading ? '正在读取…' : '还没有任务记录'}</h3><p>每次采集的目标、起止时间和结果会保存在本机。</p></div> : <table className="wb-table"><thead><tr><th>任务</th><th>采集目标</th><th>开始时间</th><th>结果</th><th>退出码</th><th>操作</th></tr></thead><tbody>{data.map(task => <tr key={task.id}><td>{platformNames[task.platform]}<small>{modeNames[task.crawler_type]}</small></td><td className="wb-target-cell" title={task.target}>{task.target || '—'}<small>批次 {task.id.slice(0,8)}{task.effective_options?` · 上限 ${task.effective_options.max_notes_count} · 起始 ${task.effective_options.start_page}`:''}</small>{task.xhs_filters && <small>{task.dataset_counts?`本次 ${task.dataset_counts.total} 条 · 新增 ${task.dataset_counts.new||0} · 复用 ${task.dataset_counts.reused||0} · 刷新 ${task.dataset_counts.refreshed||0}`:`历史保存计数 ${task.progress?.collected??0} 条 · 成员范围需核对`}</small>}</td><td>{new Date(task.started_at).toLocaleString('zh-CN')}</td><td><span className={`wb-badge ${task.outcome === 'failed' ? 'red' : task.outcome === 'running' ? 'purple' : ''}`}>{outcomeNames[task.outcome]}</span></td><td>{task.exit_code ?? '—'}</td><td><div className="wb-task-actions">{onDataset&&<button className="wb-button" onClick={()=>onDataset(task.id)}>查看资料</button>}{onResearch&&task.platform==='xhs'&&<button className="wb-button" disabled={!writable||task.outcome==='running'} onClick={()=>onResearch(task)}>内容分析</button>}<button className="wb-button" disabled={!writable || !!deleting || task.outcome === 'running'} onClick={() => void remove(task.id)}>{deleting === task.id ? '删除中…' : '删除'}</button></div></td></tr>)}</tbody></table>}
+    {error && <p role="alert" className="wb-error">{error}</p>}{isError ? <p role="alert" className="wb-empty">任务记录加载失败，请刷新重试。</p> : !data.length ? <div className="wb-empty"><Clock3/><h3>{isLoading ? '正在读取…' : '还没有任务记录'}</h3><p>每次采集的目标、起止时间和结果会保存在本机。</p></div> : <table className="wb-table"><thead><tr><th>任务</th><th>采集目标</th><th>开始时间</th><th>结果</th><th>退出码</th><th>操作</th></tr></thead><tbody>{data.map(task => <tr key={task.id}><td>{taskPlatforms[task.platform]}<small>{taskMode(task)}</small></td><td className="wb-target-cell" title={task.target}>{task.target || '—'}<small>批次 {task.id.slice(0,8)}{task.effective_options&&task.collection_method!=='redfox_mcp'?` · 上限 ${task.effective_options.max_notes_count} · 起始 ${task.effective_options.start_page}`:''}</small>{task.xhs_filters && <small>{task.dataset_counts?`本次 ${task.dataset_counts.total} 条 · 新增 ${task.dataset_counts.new||0} · 复用 ${task.dataset_counts.reused||0} · 刷新 ${task.dataset_counts.refreshed||0}`:`历史保存计数 ${task.progress?.collected??0} 条 · 成员范围需核对`}</small>}</td><td>{new Date(task.started_at).toLocaleString('zh-CN')}</td><td><span className={`wb-badge ${task.outcome === 'failed' ? 'red' : task.outcome === 'running' ? 'purple' : ''}`}>{outcomeNames[task.outcome]}</span></td><td>{task.exit_code ?? '—'}</td><td><div className="wb-task-actions">{onFiles&&task.collection_method==='redfox_mcp'&&<button className="wb-button" onClick={onFiles}>查看结果文件</button>}{onDataset&&task.collection_method!=='redfox_mcp'&&<button className="wb-button" onClick={()=>onDataset(task.id)}>查看资料</button>}{onResearch&&task.platform==='xhs'&&task.collection_method!=='redfox_mcp'&&<button className="wb-button" disabled={!writable||task.outcome==='running'} onClick={()=>onResearch(task)}>内容分析</button>}<button className="wb-button" disabled={!writable || !!deleting || task.outcome === 'running'} onClick={() => void remove(task.id)}>{deleting === task.id ? '删除中…' : '删除'}</button></div></td></tr>)}</tbody></table>}
   </div></section>
 }

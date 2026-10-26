@@ -152,6 +152,10 @@ class CrawlerManager:
     async def start(self, config: CrawlerStartRequest, request_key=None, actor="local") -> bool:
         """Start crawler process"""
         async with self._lock:
+            if config.collection_method == 'redfox_mcp':
+                from .redfox import credential
+                if not credential(config.platform.value):
+                    raise ValueError('未找到 RedFox API Key，请配置采集电脑的 REDFOX_API_KEY 或 Codex MCP 持久配置')
             request_key = request_key or uuid4().hex
             fingerprint = hashlib.sha256(config.model_dump_json().encode()).hexdigest()
             candidate = {'id':uuid4().hex, 'platform':config.platform.value,
@@ -159,12 +163,16 @@ class CrawlerManager:
                          'finished_at':None, 'outcome':'running', 'exit_code':None,
                          'target':redact(config.keywords or config.specified_ids or config.creator_ids), 'actor':actor,
                          'login_state':'unknown', 'login_message':'需要登录或验证码时，请在采集电脑的浏览器完成；工作台不远程控制桌面。'}
+            candidate['collection_method'] = config.collection_method
+            if config.collection_method == 'redfox_mcp':
+                candidate.update(mcp_tool=config.mcp_tool, target=config.mcp_tool,
+                                 login_message='RedFox MCP 使用服务凭据，无需浏览器登录')
             if config.xhs_filters:
                 candidate['xhs_filters']=config.xhs_filters.model_dump()
             import config as runtime_config
             candidate['effective_options']=dict(start_page=config.start_page,max_notes_count=config.max_notes_count if config.max_notes_count is not None else runtime_config.CRAWLER_MAX_NOTES_COUNT,
                 max_comments_count=config.max_comments_count if config.max_comments_count is not None else runtime_config.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES,enable_media=config.enable_media,enable_comments=config.enable_comments,save_option=config.save_option.value)
-            if config.platform.value=='xhs':candidate['membership_version']=1
+            if config.platform.value=='xhs' and config.collection_method == 'browser':candidate['membership_version']=1
             admission, document = workbench_store.reserve_task(candidate,actor,request_key,fingerprint)
             if admission == 'conflict':
                 raise ValueError('同一请求标识不能用于不同参数')
@@ -216,7 +224,8 @@ class CrawlerManager:
                     encoding='utf-8',
                     bufsize=1,
                     cwd=str(self._project_root),
-                    env={**os.environ, "PYTHONUNBUFFERED": "1", "MEDIACRAWLER_TASK_ID": self.task_id, "MEDIACRAWLER_TASK_COOKIES": config.cookies, "MEDIACRAWLER_EXECUTION_LOCK": str(workbench_store.DB_PATH.parent/"execution.lock")}
+                    env={**os.environ, "PYTHONUNBUFFERED": "1", "MEDIACRAWLER_TASK_ID": self.task_id, "MEDIACRAWLER_TASK_COOKIES": config.cookies, "MEDIACRAWLER_EXECUTION_LOCK": str(workbench_store.DB_PATH.parent/"execution.lock"),
+                         **({'MEDIACRAWLER_MCP_REQUEST': config.model_dump_json()} if config.collection_method == 'redfox_mcp' else {})}
                 )
 
                 self.status = "running"
@@ -322,6 +331,8 @@ class CrawlerManager:
 
     def _build_command(self, config: CrawlerStartRequest) -> list:
         """Build main.py command line arguments"""
+        if config.collection_method == 'redfox_mcp':
+            return [sys.executable, '-m', 'api.services.redfox']
         cmd = ["uv", "run", "python", "main.py"]
 
         cmd.extend(["--platform", config.platform.value])

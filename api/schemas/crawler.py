@@ -34,6 +34,8 @@ class PlatformEnum(str, Enum):
     WEIBO = "wb"
     TIEBA = "tieba"
     ZHIHU = "zhihu"
+    TWITTER = "twitter"
+    YOUTUBE = "youtube"
 
 
 class LoginTypeEnum(str, Enum):
@@ -64,6 +66,9 @@ class SaveDataOptionEnum(str, Enum):
 class CrawlerStartRequest(BaseModel):
     """Crawler start request"""
     platform: PlatformEnum
+    collection_method: Literal['browser', 'redfox_mcp'] = 'browser'
+    mcp_tool: str = Field(default='', max_length=100)
+    mcp_arguments: dict = Field(default_factory=dict)
     login_type: LoginTypeEnum = LoginTypeEnum.QRCODE
     crawler_type: CrawlerTypeEnum = CrawlerTypeEnum.SEARCH
     keywords: str = ""  # Keywords for search mode
@@ -82,6 +87,15 @@ class CrawlerStartRequest(BaseModel):
 
     @model_validator(mode='after')
     def validate_browser_filters(self):
+        if self.collection_method == 'redfox_mcp':
+            from api.services.redfox import validate_tool
+            validate_tool(self.platform.value, self.mcp_tool, self.mcp_arguments)
+            if self.xhs_filters or self.cookies or self.enable_media or self.enable_sub_comments:
+                raise ValueError('MCP 采集不使用浏览器筛选、Cookie、媒体下载或子评论开关')
+            if self.save_option != SaveDataOptionEnum.JSON:
+                raise ValueError('MCP 原始结果目前仅支持保存为 JSON')
+        elif self.platform in (PlatformEnum.TWITTER, PlatformEnum.YOUTUBE):
+            raise ValueError('此平台请使用 RedFox MCP 采集')
         if self.xhs_filters is not None:
             if self.platform != PlatformEnum.XHS or self.crawler_type != CrawlerTypeEnum.SEARCH:
                 raise ValueError('网页高级筛选仅支持小红书关键词搜索')

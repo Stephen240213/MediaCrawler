@@ -9,6 +9,7 @@ export interface Draft {
   platform: string; version: number; updated_at?: string
 }
 export interface Task {
+  collection_method?: 'browser' | 'redfox_mcp'; mcp_tool?: string
   id: string; platform: string; crawler_type: string; started_at: string
   finished_at: string | null; outcome: 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
   exit_code: number | null; target: string

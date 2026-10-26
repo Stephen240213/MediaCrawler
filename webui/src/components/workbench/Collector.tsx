@@ -8,6 +8,7 @@ import { useStartCrawler, useStopCrawler } from '@/hooks/useCrawler'
 import { platformNames, modeNames } from '@/lib/workbench'
 import { SearchFilters } from './SearchFilters'
 import { ParsedIdList } from '@/components/config/ParsedIdList'
+import { RedFoxCollector } from './RedFoxCollector'
 
 export const collectionTools = [
   {id: 'search', title: '关键词搜索', description: '按关键词查找内容与评论', icon: Search},
@@ -15,6 +16,13 @@ export const collectionTools = [
   {id: 'creator', title: '创作者采集', description: '采集创作者主页中的内容', icon: Users},
 ]
 export function Collector() {
+  const config = useCrawlerStore(s => s.config)
+  const update = useCrawlerStore(s => s.updateConfig)
+  const status = useCrawlerStore(s => s.status)
+  const writable = canOperate(useSession())
+  return <div className="wb-collector"><section className="wb-card" style={{padding:20,marginBottom:16}}><label>采集方式<select aria-label="采集方式" value={config.collection_method || 'browser'} disabled={!writable || status==='running' || status==='stopping'} onChange={e=>update({collection_method:e.target.value as 'browser' | 'redfox_mcp'})}><option value="browser">浏览器采集</option><option value="redfox_mcp">RedFox MCP</option></select></label></section>{config.collection_method === 'redfox_mcp' ? <RedFoxCollector/> : <BrowserCollector/>}</div>
+}
+function BrowserCollector() {
   const writable = canOperate(useSession())
   const defaults=useQuery({queryKey:['xhsFilterOptions'],queryFn:async()=>(await api.get<{limits:{max_notes_count:number;max_comments_count:number}}>('/config/xhs-search-filters')).data})
   const config = useCrawlerStore(s => s.config)

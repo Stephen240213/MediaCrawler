@@ -480,6 +480,8 @@
   background:#f5f0fd;
   color:#8d59dd;
 }
+.wb-collector { min-width: 0; }
+.wb-collector select { max-width: 100%; width: 100%; }
 .wb-tool-form .wb-card-heading {
   padding:18px;
 }

@@ -43,6 +43,9 @@ async function startTask(config: CrawlerConfig) {
 
 // Types
 export interface CrawlerConfig {
+  collection_method?: 'browser' | 'redfox_mcp'
+  mcp_tool?: string
+  mcp_arguments?: Record<string, string | number>
   platform: string
   login_type: string
   crawler_type: string
